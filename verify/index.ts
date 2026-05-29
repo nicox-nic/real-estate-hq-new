@@ -120,6 +120,20 @@ import {
   getClientMessageCount,
   _resetForTests,
 } from "@/lib/conversationStore";
+import {
+  TRANSACTION_CATEGORIES,
+  CATEGORY_SLUGS,
+  categoryFromSlug,
+  listingsByCategory,
+  enrichDevelopers,
+  unitsForProject,
+  UNIT_FILTERS,
+  applyUnitFilter,
+  findDeveloper,
+  findProject,
+} from "@/lib/logic/listingsDerivations";
+import { primaryActionFor } from "@/components/listings/ListingActionRow";
+import { roleFromPathname } from "@/lib/useCurrentRole";
 
 // ----------------------------------------------------------------------------
 // Mini assertion framework
@@ -2124,11 +2138,316 @@ function checkAIReply() {
 }
 
 // ----------------------------------------------------------------------------
-// 10. PRD Coverage
+// 10. Listings spine & role-aware actions (Session 4A)
+// ----------------------------------------------------------------------------
+
+function checkListingsSpine() {
+  const section = "10. Listings spine";
+
+  // -- Category coverage --
+  check(
+    section,
+    "TRANSACTION_CATEGORIES has all 7 PRD categories",
+    TRANSACTION_CATEGORIES.length === 7,
+    `got ${TRANSACTION_CATEGORIES.length}`,
+  );
+
+  // CATEGORY_SLUGS is total and stable
+  for (const c of TRANSACTION_CATEGORIES) {
+    check(
+      section,
+      `CATEGORY_SLUGS has slug for "${c}"`,
+      typeof CATEGORY_SLUGS[c] === "string" && CATEGORY_SLUGS[c].length > 0,
+    );
+    check(
+      section,
+      `categoryFromSlug round-trips "${c}"`,
+      categoryFromSlug(CATEGORY_SLUGS[c]) === c,
+    );
+  }
+
+  // listingsByCategory returns counts in PRD order with no missing key
+  const counts = listingsByCategory(seedListings);
+  check(
+    section,
+    "listingsByCategory returns 7 entries in PRD order",
+    counts.length === 7 &&
+      counts.every((e, i) => e.category === TRANSACTION_CATEGORIES[i]),
+  );
+  const totalListings = counts.reduce((s, e) => s + e.count, 0);
+  check(
+    section,
+    "Category counts sum to seedListings.length",
+    totalListings === seedListings.length,
+    `sum=${totalListings}, listings=${seedListings.length}`,
+  );
+
+  // Each category has ≥1 listing — prevents an empty category landing.
+  for (const c of TRANSACTION_CATEGORIES) {
+    const n = counts.find((e) => e.category === c)?.count ?? 0;
+    check(
+      section,
+      `Category "${c}" has ≥1 listing seeded`,
+      n >= 1,
+      `got ${n}`,
+    );
+  }
+
+  // -- Developer-level enrichment --
+  const developers = enrichDevelopers(
+    seedDevelopers,
+    seedProjects,
+    seedUnits,
+  );
+  check(
+    section,
+    "Developer Listings page has ≥5 developer cards (framing minimum)",
+    developers.length >= 5,
+    `got ${developers.length}`,
+  );
+
+  for (const d of developers) {
+    check(
+      section,
+      `Developer "${d.developer.name}" has ≥2 projects`,
+      d.projects.length >= 2,
+      `got ${d.projects.length}`,
+    );
+    check(
+      section,
+      `Developer "${d.developer.name}" has ≥1 available unit`,
+      d.availableUnits >= 1,
+      `got ${d.availableUnits}`,
+    );
+  }
+
+  // -- Project-level density --
+  for (const p of seedProjects) {
+    const projUnits = unitsForProject(p.id, seedUnits);
+    check(
+      section,
+      `Project "${p.name}" has ≥6 units (framing minimum for drill-down density)`,
+      projUnits.length >= 6,
+      `got ${projUnits.length}`,
+    );
+  }
+
+  // unitsForProject sort: Available first, then by price ascending
+  const someProject = seedProjects[0]!;
+  const sortedUnits = unitsForProject(someProject.id, seedUnits);
+  if (sortedUnits.length >= 2) {
+    // Within each availability bucket, prices are non-decreasing
+    let bucketStartAvail = sortedUnits[0]!.availability;
+    let bucketStartPrice = sortedUnits[0]!.price;
+    for (let i = 1; i < sortedUnits.length; i++) {
+      const u = sortedUnits[i]!;
+      if (u.availability !== bucketStartAvail) {
+        bucketStartAvail = u.availability;
+        bucketStartPrice = u.price;
+      } else {
+        check(
+          section,
+          `unitsForProject ordering: within "${bucketStartAvail}", prices non-decreasing`,
+          u.price >= bucketStartPrice,
+          `at unit ${u.id}: ${u.price} < ${bucketStartPrice}`,
+        );
+        bucketStartPrice = u.price;
+      }
+    }
+  }
+
+  // -- Unit filter chips --
+  check(
+    section,
+    "UNIT_FILTERS has the 8 PRD chips",
+    UNIT_FILTERS.length === 8,
+    `got ${UNIT_FILTERS.length}`,
+  );
+  const allUnitsForSomeProject = seedUnits.filter(
+    (u) => u.projectId === someProject.id,
+  );
+  // "All" returns everything
+  check(
+    section,
+    "applyUnitFilter('All') returns all units for a project",
+    applyUnitFilter(allUnitsForSomeProject, "All").length ===
+      allUnitsForSomeProject.length,
+  );
+  // "Available" excludes Sold and Reserved (we also include Sold Out Soon as "still actionable")
+  const available = applyUnitFilter(allUnitsForSomeProject, "Available");
+  check(
+    section,
+    "applyUnitFilter('Available') excludes Sold and Reserved",
+    available.every(
+      (u) => u.availability === "Available" || u.availability === "Sold Out Soon",
+    ),
+  );
+
+  // -- Seeded-prop anchors --
+  // Anchor 1: dev-landmasters with proj-laurel-hills
+  const landmasters = developers.find(
+    (d) => d.developer.id === "dev-landmasters",
+  );
+  if (!landmasters) {
+    fail(section, "Anchor: dev-landmasters exists", "missing");
+  } else {
+    check(
+      section,
+      "Anchor: Landmasters has 3 projects",
+      landmasters.projects.length === 3,
+      `got ${landmasters.projects.length}`,
+    );
+    check(
+      section,
+      "Anchor: Landmasters covers Cebu, Mactan, Mandaue",
+      landmasters.developer.locationsCovered.includes("Cebu City") &&
+        landmasters.developer.locationsCovered.includes("Mactan"),
+    );
+    const laurel = landmasters.projects.find(
+      (p) => p.id === "proj-laurel-hills",
+    );
+    check(
+      section,
+      "Anchor: proj-laurel-hills exists under Landmasters",
+      !!laurel,
+    );
+    if (laurel) {
+      check(
+        section,
+        "Anchor: Laurel Hills is RFO",
+        laurel.status === "RFO",
+      );
+      const laurelUnits = unitsForProject("proj-laurel-hills", seedUnits);
+      check(
+        section,
+        "Anchor: Laurel Hills has exactly 6 seeded units",
+        laurelUnits.length === 6,
+        `got ${laurelUnits.length}`,
+      );
+      check(
+        section,
+        "Anchor: unit-laurel-12a is the demo deal unit",
+        laurelUnits.some((u) => u.id === "unit-laurel-12a"),
+      );
+    }
+  }
+
+  // Anchor 2: proj-the-veranda — demo unit (Alex Reyes deal)
+  const verandaUnits = unitsForProject("proj-the-veranda", seedUnits);
+  check(
+    section,
+    "Anchor: The Veranda has 6 units seeded",
+    verandaUnits.length === 6,
+    `got ${verandaUnits.length}`,
+  );
+  check(
+    section,
+    "Anchor: unit-veranda-8f present (demo deal target)",
+    verandaUnits.some((u) => u.id === "unit-veranda-8f"),
+  );
+
+  // -- Role-aware action mapping --
+  // Pure helper level: same listing, three roles, three labels.
+  const agentAction = primaryActionFor("Agent");
+  const brokerAction9 = primaryActionFor("Broker", 9);
+  const realtorAction = primaryActionFor("Realtor");
+  check(
+    section,
+    "Role-aware action: Agent → 'Share to my pipeline'",
+    agentAction.label === "Share to my pipeline",
+    `got ${agentAction.label}`,
+  );
+  check(
+    section,
+    "Role-aware action: Broker (9 agents) → 'Send to 9 agents'",
+    brokerAction9.label === "Send to 9 agents",
+    `got ${brokerAction9.label}`,
+  );
+  check(
+    section,
+    "Role-aware action: Realtor → 'Send to network'",
+    realtorAction.label === "Send to network",
+    `got ${realtorAction.label}`,
+  );
+  // All three differ
+  check(
+    section,
+    "Role-aware action: three role labels are pairwise distinct",
+    agentAction.label !== brokerAction9.label &&
+      brokerAction9.label !== realtorAction.label &&
+      agentAction.label !== realtorAction.label,
+  );
+  // Broker fallback when count is 0
+  const brokerAction0 = primaryActionFor("Broker", 0);
+  check(
+    section,
+    "Role-aware action: Broker (0 agents) → 'Send to agents' fallback",
+    brokerAction0.label === "Send to agents",
+    `got ${brokerAction0.label}`,
+  );
+
+  // -- useCurrentRole URL → role mapping --
+  check(
+    section,
+    "roleFromPathname('/agent/listings') === 'Agent'",
+    roleFromPathname("/agent/listings") === "Agent",
+  );
+  check(
+    section,
+    "roleFromPathname('/broker/listings') === 'Broker'",
+    roleFromPathname("/broker/listings") === "Broker",
+  );
+  check(
+    section,
+    "roleFromPathname('/realtor/listings') === 'Realtor'",
+    roleFromPathname("/realtor/listings") === "Realtor",
+  );
+  check(
+    section,
+    "roleFromPathname('/') defaults to 'Agent' (safe default)",
+    roleFromPathname("/") === "Agent",
+  );
+  check(
+    section,
+    "roleFromPathname('/auth/signup') defaults to 'Agent'",
+    roleFromPathname("/auth/signup") === "Agent",
+  );
+
+  // -- Demo broker has the expected 9 agents (drives "Send to 9 agents" label) --
+  const agentsUnderDemoBroker = seedUsers.filter(
+    (u) => u.parentId === DEMO_BROKER_ID && u.role === "Agent",
+  ).length;
+  check(
+    section,
+    "Demo broker (broker-001) has exactly 9 agents — the 'Send to 9 agents' label depends on this",
+    agentsUnderDemoBroker === 9,
+    `got ${agentsUnderDemoBroker}`,
+  );
+
+  // -- Lookup helpers --
+  check(
+    section,
+    "findDeveloper returns dev-landmasters",
+    findDeveloper("dev-landmasters", seedDevelopers)?.name === "Landmasters",
+  );
+  check(
+    section,
+    "findDeveloper returns undefined for unknown ID",
+    findDeveloper("dev-nope", seedDevelopers) === undefined,
+  );
+  check(
+    section,
+    "findProject returns proj-laurel-hills",
+    findProject("proj-laurel-hills", seedProjects)?.name === "Laurel Hills Estate",
+  );
+}
+
+// ----------------------------------------------------------------------------
+// 11. PRD Coverage
 // ----------------------------------------------------------------------------
 
 function reportPRDCoverage() {
-  const section = "10. PRD Coverage";
+  const section = "11. PRD Coverage";
 
   check(
     section,
@@ -2254,6 +2573,51 @@ function reportPRDCoverage() {
     complete >= 12,
     `complete=${complete}`,
   );
+
+  // Session 4A stop-signal: 11 listings spine routes promoted to complete.
+  // listings-menu, listings-for-sale, 6 other category landings,
+  // developer-list-by-developer, developer-project-view, unit-inventory.
+  // Private Offerings full surface (#19) and My Listings (#20) defer to 4B.
+  const session4aRoutes = [
+    "listings-menu",
+    "listings-for-sale",
+    "listings-for-rent",
+    "listings-foreclosure",
+    "listings-for-assume",
+    "listings-pre-selling",
+    "listings-rfo",
+    "listings-commercial",
+    "developer-list-by-developer",
+    "developer-project-view",
+    "unit-inventory",
+  ];
+  for (const id of session4aRoutes) {
+    const entry = prdRoutes.find((r) => r.id === id);
+    if (!entry) {
+      fail(section, `Session 4A route ${id} present in manifest`, "missing");
+      continue;
+    }
+    check(
+      section,
+      `Session 4A route "${id}" status = complete`,
+      entry.status === "complete",
+      `got ${entry.status}`,
+    );
+    check(
+      section,
+      `Session 4A route "${id}" completedInSession = 4`,
+      entry.completedInSession === 4,
+      `got ${entry.completedInSession}`,
+    );
+  }
+
+  // Coverage cannot regress: 12 (Session 3B) + 11 (Session 4A spine) = 23.
+  check(
+    section,
+    "Coverage progress: ≥ 23 routes complete after Session 4A",
+    complete >= 23,
+    `complete=${complete}`,
+  );
 }
 
 // ----------------------------------------------------------------------------
@@ -2329,5 +2693,6 @@ checkAuthAndSchemas();
 checkDashboardMath();
 checkInboxAndContradiction();
 checkAIReply();
+checkListingsSpine();
 reportPRDCoverage();
 report();

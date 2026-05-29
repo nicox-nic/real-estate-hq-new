@@ -5,6 +5,84 @@ Newest sessions at top.
 
 ---
 
+## Session 4A — Listings spine + role-aware actions
+**Date:** 2025-05-29
+**Branch:** main
+**Scope:** Listings Menu (#14), For Sale category (#15) with Developer/Private tabs, Developer Listings (#16), Developer Project View (#17), Unit Inventory View (#18), plus 6 other category landings (For Rent, Foreclosure, For Assume, Pre-Selling, RFO, Commercial). Role-aware action buttons concentrated in a single component. End-to-end drill-down from Menu → Developers → Projects → Units with role-appropriate primary CTAs throughout.
+
+### What shipped
+
+- **`lib/useCurrentRole.ts`** — single source of truth for role-conditional rendering. The hook reads `usePathname()` and returns the active role based on URL prefix (`/agent/...` → Agent, `/broker/...` → Broker, `/realtor/...` → Realtor, otherwise default Agent). Pure helper `roleFromPathname(p)` exported so verify locks the mapping without invoking React. Architecturally identical to `useCurrentUser` from the foundation phase. **Cross-file invariant from this session: no inline role string comparisons (`role === "Broker"`) outside this helper and `ListingActionRow`.**
+- **`lib/logic/listingsDerivations.ts`** — pure logic module backing the listings spine:
+  - `TRANSACTION_CATEGORIES` — the 7 PRD categories in display order
+  - `CATEGORY_SLUGS` — stable URL slug per category; single source of truth for route paths
+  - `categoryFromSlug()` — reverse lookup
+  - `listingsByCategory(listings)` → per-category counts in PRD order
+  - `enrichDevelopers(devs, projects, units)` → developer cards with live-derived project + available counts
+  - `projectsForDeveloper(devId, projects, units)` → project cards with live unit-derived price range
+  - `unitsForProject(projId, units)` — sorted by availability then by price ascending
+  - `UNIT_FILTERS` (8 chips: All / Available / Reserved / Sold / Studio / 1BR / 2BR / 3BR+) + `applyUnitFilter`
+  - `findDeveloper`, `findProject` lookups
+- **`components/listings/ListingActionRow.tsx`** — the second concentration point. `primaryActionFor(role, agentsUnderCount?)` is the pure helper exporting the role → label mapping (Agent → "Share to my pipeline" with Share2 icon; Broker → "Send to N agents" with Send icon, falls back to "Send to agents" when count is 0; Realtor → "Send to network" with Users icon). The React component takes `role`, `agentsUnderCount`, optional `compact`/`hideDetails`/`onPrimary`/`onDetails` and renders the primary button + optional Details affordance. Test-ids on the wrapper expose role and primary label for verify.
+- **`components/listings/CategoryListingsPage.tsx`** — shared landing for the 6 non-For-Sale categories (For Rent, Foreclosure, For Assume, Pre-Selling, RFO, Commercial). Filters `seedListings` by `transactionType`, renders card list with `ListingActionRow` on each. Six page files are 4-line wrappers around this component.
+- **App routes built (10 new under `/agent/listings/...` + 2 role-mirror entry routes):**
+  - `/agent/listings` — Listings Menu (#14). 7 category tiles, role-aware subtitle copy, per-category counts. `data-testid="category-tile-{slug}"`.
+  - `/agent/listings/for-sale` — For Sale (#15). Two tabs: Developer Listings (preview list of 6 developers with chevron drill-down) + Private Offerings (preview list with note that the full surface ships in 4B).
+  - `/agent/listings/for-sale/developers` — Developer Listings by Developer (#16). 5 developer cards with live counts, location chips, average commission rate, featured project preview tags.
+  - `/agent/listings/for-sale/developers/[developerId]` — Developer Project View (#17). Developer hero + project cards with status badge, live total/available unit counts, role-aware action row per project.
+  - `/agent/listings/for-sale/developers/[developerId]/[projectId]` — Unit Inventory View (#18). Project hero + 8 filter chips + unit cards (Bed/Maximize/Eye/Tag icons, availability badge, financing chips, role-aware action row). Tapping a unit routes to `/listings/[unitId]` (intentional 404 — Session 5 work).
+  - `/agent/listings/for-rent`, `/foreclosure`, `/for-assume`, `/pre-selling`, `/rfo`, `/commercial` — thin wrappers around `CategoryListingsPage`.
+  - `/broker/listings` and `/realtor/listings` — 1-line re-exports of the agent Menu. The `useCurrentRole()` hook reads "Broker" / "Realtor" from the URL prefix and renders the appropriate action labels everywhere downstream.
+- **Seed data expanded** — `data/listings.ts` seedUnits grew from 8 → **73 units**. Every one of the 12 projects now has ≥ 6 seeded units. Realistic mix of Available / Reserved / Sold / Sold Out Soon. Demo-critical anchors held: Laurel Hills Estate retains `unit-laurel-12a` (deal-001) and now has 6 total units; The Veranda retains `unit-veranda-8f` and now has 6 total.
+- **PRD manifest updated** — all 11 listings spine routes promoted from `pending` to `complete`, `completedInSession: 4`. Routes corrected to reflect the more PRD-true nesting under `/for-sale/developers/...` (the original manifest had a flatter assumption).
+- **Verify Section 10 (Listings spine, 75 asserts)** added:
+  - TRANSACTION_CATEGORIES count + ordering, CATEGORY_SLUGS totality + roundtrip
+  - `listingsByCategory` shape + sum-back to total listing count; each category ≥1 listing seeded
+  - `enrichDevelopers` ≥5 developers (framing minimum); each developer ≥2 projects + ≥1 available unit
+  - Every project has ≥6 units (framing minimum for drill-down density)
+  - `unitsForProject` ordering: Available bucket first, then Sold Out Soon, Reserved, Sold; within each bucket prices non-decreasing
+  - UNIT_FILTERS has 8 chips; `applyUnitFilter('All')` returns everything; `applyUnitFilter('Available')` excludes Sold + Reserved (still includes Sold Out Soon as actionable)
+  - **Seeded-prop anchors:** dev-landmasters has 3 projects covering Cebu/Mactan; proj-laurel-hills is RFO with exactly 6 units including unit-laurel-12a; proj-the-veranda has 6 units including unit-veranda-8f
+  - **Role-aware action mapping at pure-helper level:** Agent → "Share to my pipeline"; Broker(9) → "Send to 9 agents"; Broker(0) → "Send to agents"; Realtor → "Send to network"; three role labels pairwise distinct
+  - `roleFromPathname` URL → role mapping for `/agent/...`, `/broker/...`, `/realtor/...`, `/`, `/auth/signup` (safe default)
+  - Demo broker (broker-001) has exactly 9 agents — locks the "Send to 9 agents" string
+  - `findDeveloper`, `findProject` correctness
+- **Verify Section 11 (PRD Coverage)** renumbered from 10. Session 4A advancement: 11 listings spine routes assert `status="complete"` + `completedInSession=4`; aggregate `complete >= 23`.
+
+### Decisions and engineering notes (carry-forwards)
+
+- **`useCurrentRole()` is new this session.** Composed identically to `useCurrentUser` from the foundation phase: pure helper exported separately for verify, hook wraps it with React's `usePathname()`. Future sessions: any role-conditional rendering goes through this helper.
+- **Role-aware ACTIONS, not role-aware DATA scoping** — locked. All three roles see the same inventory (`seedListings`, `seedDevelopers`, etc.). What differs is the primary CTA on listing cards. Session 7's broker-specific Listings Management view with distribution-specific tabs and the AI-recommended-agents flow is **additive on top of 4A's spine**, not a replacement for it.
+- **Role mirror routes are 1-line re-exports.** `/broker/listings` and `/realtor/listings` simply re-export the agent Menu component. The URL prefix is what flips role context via `useCurrentRole()`. Drill-down routes for broker/realtor are intentionally not mirrored in 4A — when a broker drills in from `/broker/listings` they land in the `/agent/listings/...` subtree and the URL-derived role flips back to Agent. **Session 7** adds the broker-specific drill-down (with distribution flow + AI-recommended-agents) that hangs off `/broker/listings/...`. For 4A the verify target ("viewing a listing as a Broker shows 'Send to N agents'") is satisfied at the pure-helper level via `primaryActionFor("Broker", 9)`.
+- **For Sale route nesting corrected.** Original manifest had `/agent/listings/developers/...`; the actual PRD-true path is `/agent/listings/for-sale/developers/...` (developer listings are For Sale's children). Manifest updated.
+- **All 6 non-For-Sale category pages completed in 4A.** Framing left this to judgment — "completing them all in 4A may be cleaner than splitting across 4A/4B." Building the 6 placeholders as shallow but real category landings via the shared `CategoryListingsPage` component (4-line per-route wrappers) keeps them all parallel patterns and means 4B doesn't need to revisit them.
+- **AI Listing Search explicitly deferred to 4B.** The natural-language search input was not built in 4A. The framing said to note explicitly if deferred — done.
+- **No data model adjustments needed.** Existing `Unit` / `Project` / `DeveloperProfile` types covered every field the drill-down needed. Filter logic (`applyUnitFilter`) read from existing fields (`availability`, `bedrooms`); no schema changes.
+- **Expected 404 noted.** Tapping a unit card or a private offering routes to `/{role}/listings/[unitId|listingId]`, which Session 5 builds. Until then the link 404s. Surfaced inline on the Unit Inventory page as an italic subtle note.
+- **Listing concentration mirrors prior patterns.** `primaryActionFor()` in `ListingActionRow.tsx` is the same pattern as `applyTone()` in aiReply, `applyEngineRule()` in lead scoring, and `splitCommission()`: a pure dispatcher + per-input shaper, with the public mapping verify-locked. This is the **Rule of Three** confirmed: when role-aware decisions appear in future sessions (Session 7's broker view, Session 8's analytics views, etc.), they should compose `useCurrentRole()` and route through a concentration point analogous to `ListingActionRow`.
+- **Methodology refinement locked (carry-forward from Session 3B closeout):** when behavioral assertions are needed, prefer semantic-shape assertions (what does this output do?) over surface-property assertions (length, count) where the semantic property is the actual concern. Length is a noisy proxy when the output's job genuinely varies in length per intent. The Session 10 listings asserts apply this principle: the role-aware action assertion measures **the label string itself** ("Share to my pipeline" / "Send to 9 agents" / "Send to network"), not the length of the label or the number of buttons — because the semantic property is the label content.
+- **Three sophistication notes worth naming for posterity** (from 3B closeout, recorded here so they don't get lost): (a) The AI panel showing rule name in its header strip is genuinely sophisticated transparency — turns AI from black-box into a tool whose reasoning is inspectable. (b) The auto-firing sensitive-topic note on financing keywords is compliance-adjacent intuition worth preserving. (c) The Cebuano-no-po cross-language leakage guard locked by verify is the right defensive structure.
+
+### Verify
+
+- TypeScript: clean (`tsc --noEmit`).
+- Build: **26 routes** (was 15 at end of 3B; +11 listings spine routes). Largest: unit inventory at 6.37 kB / 126 kB First Load.
+- Verify: **917 / 917 passed** (+163 from Session 3B's 754). Distribution: FK integrity 468 (+65 from new units), Listings spine 75 (new), PRD coverage 52 (+23 from Session 4A advancement), other sections unchanged.
+
+### Stop signal met
+
+- ✅ Open `/agent/listings` → 7 category tiles with listing counts; subtitle: "Browse inventory and share with your buyers."
+- ✅ Open `/broker/listings` → same Menu, subtitle changes to "Browse inventory and distribute to your team."
+- ✅ Open `/realtor/listings` → "Browse inventory and distribute across your network."
+- ✅ Tap For Sale → tab structure with Developer Listings (selected) showing 6 developer cards, Private Offerings tab showing private listings preview.
+- ✅ Tap a developer → Developer Project View with 2-3 project cards, each with status badge + live unit counts + role-aware action.
+- ✅ Tap a project → Unit Inventory View with project hero + 8 filter chips + 6-7 unit cards. Filter chips work (Available, Reserved, 1BR, etc.).
+- ✅ As Broker (via `/broker/listings`): action buttons read "Send to 9 agents" everywhere.
+- ✅ Tap a category that isn't For Sale (e.g. Foreclosure) → category landing with listing cards and role-aware action row.
+- ✅ Back navigation preserves position via standard Next.js routing.
+
+---
+
 ## Session 3B — Buyer Conversation (full implementation)
 **Date:** 2025-05-29
 **Branch:** main

@@ -1,47 +1,70 @@
-# Session 3B — Report
+# Session 4A — Report
 
 **Branch:** `main`
-**Stop signal:** met. Buyer Conversation full implementation works end-to-end. Marquee conversational surface is now live: open conversation → see inline AI suggestion (rule visible) → dismiss/refine/use → change tone or language → attach file → send → message lands in thread.
+**Stop signal:** met. Listings spine end-to-end. Menu → For Sale → Developers → Projects → Units works at every level with role-appropriate primary CTAs throughout. Drill-down is meaningfully populated (5 developers, 12 projects, 73 units; every project ≥6 units).
 
 ## At a glance
 - **TypeScript:** clean
-- **Build:** 15 routes (unchanged — scaffold replaced in place). Conversation page at 12.9 kB / 130 kB First Load
-- **Verify:** 754 / 754 passed (+81 from Session 3A's 673)
-- **PRD coverage:** 12 complete · 0 scaffolded · 34 pending of 46
-- **Walkability:** the conversational flow is now end-to-end. Combined with 3A: dashboard → inbox → conversation → AI panel → refine → send → see message land.
+- **Build:** 26 routes (was 15). +11 listings spine routes (10 under `/agent/listings/...` + 2 role-mirror entries under `/broker/` and `/realtor/`). Largest: Unit Inventory at 6.37 kB / 126 kB First Load
+- **Verify:** **917 / 917 passed** (+163 from Session 3B's 754)
+  - Section 10 Listings spine: 75 new asserts
+  - Section 11 PRD Coverage: +23 from Session 4A advancement
+  - Section 1 FK Integrity: +65 from 65 new units adding role-aware aggregation + FK pairs
+- **PRD coverage:** **23 complete** · 0 scaffolded · 23 pending of 46 — exactly halfway through the build
+- **Walkability:** Foundation + Auth + Agent Dashboard + Lead Inbox + Buyer Profile + Buyer Conversation + Listings spine. The agent's day-zero workflow from log-in to inventory drill-down works end to end.
 
-## What shipped (Session 3B's one promotion)
+## What shipped (Session 4A's 11 promotions)
 
-| Route | Status | Notes |
-|---|---|---|
-| `/agent/leads/[leadId]` — Buyer Conversation | scaffolded → **complete** | Channel ribbon, dismissable inline AI panel + AIReplyPill resummon, 8 PRD tones, 3 languages, attach sheet, refine sheet, send-to-store mutation, sensitive-topic agent note |
+| # | Route | Status | Notes |
+|---|---|---|---|
+| 14 | `/agent/listings` — Listings Menu | pending → **complete** | 7 category tiles, role-aware subtitle, per-category counts; mirrored under `/broker/listings` and `/realtor/listings` |
+| 15 | `/agent/listings/for-sale` — For Sale | pending → **complete** | Two tabs: Developer Listings (drill-down entry) + Private Offerings (preview; full surface in 4B) |
+| 16 | `/agent/listings/for-sale/developers` — Developer Listings | pending → **complete** | 5 developer cards with live counts, locations, commission rate, project preview tags |
+| 17 | `/agent/listings/for-sale/developers/[developerId]` — Developer Project View | pending → **complete** | Developer hero + project cards with status badges + live unit counts + role-aware action |
+| 18 | `/agent/listings/for-sale/developers/[developerId]/[projectId]` — Unit Inventory View | pending → **complete** | Project hero + 8 filter chips + unit cards with bed/area/view/price/commission + role-aware action |
+| — | `/agent/listings/for-rent` | pending → **complete** | Shared `CategoryListingsPage` |
+| — | `/agent/listings/foreclosure` | pending → **complete** | Shared `CategoryListingsPage` |
+| — | `/agent/listings/for-assume` | pending → **complete** | Shared `CategoryListingsPage` |
+| — | `/agent/listings/pre-selling` | pending → **complete** | Shared `CategoryListingsPage` |
+| — | `/agent/listings/rfo` | pending → **complete** | Shared `CategoryListingsPage` |
+| — | `/agent/listings/commercial` | pending → **complete** | Shared `CategoryListingsPage` |
 
-## One reframe in the report for your review
+## The session's two concentration points
 
-### Cold-vs-hot length → semantic shape
-The framing asked for "cold reply word-count < hot reply word-count" in the 4-pronged structural proof. In practice, the cold-qualifier rule needs space to ask multiple clarification questions (55 words on the demo lead); the hot-site-visit rule is decisive — "here are two slots" — and lands at 42 words. **Length is not the meaningful axis here.**
+Two new "decisions live in one place" modules, both verify-locked:
 
-What actually differs between cold and hot AI replies — and what the verify suite should lock — is the **semantic shape**:
-- Cold reply contains `?` (it asks for budget / location / timeline).
-- Hot reply mentions `viewing` / `slot` / `visit` (it offers a concrete next step).
+1. **`useCurrentRole()` in `lib/useCurrentRole.ts`** — single source of truth for role-conditional rendering, deriving the active role from the URL prefix. Pure helper `roleFromPathname()` exported separately so verify locks the mapping without needing React. **Cross-file invariant locked: no inline role string comparisons outside this helper and `ListingActionRow`.** Future role-conditional surfaces (broker view in S7, analytics in S8) reach for this.
 
-I replaced the word-count assertion with these two shape assertions. The other three prongs of the 4-pronged proof are unchanged (rule-name routing, zero booking CTAs for cold, qualifying-question regex match for cold).
+2. **`primaryActionFor()` in `components/listings/ListingActionRow.tsx`** — the role → action-label mapping. Agent → "Share to my pipeline" (Share2 icon); Broker → "Send to N agents" or "Send to agents" fallback (Send icon); Realtor → "Send to network" (Users icon). Verify pins each label string. The Rule of Three confirmed: same pattern as `applyTone`, `applyEngineRule`, `splitCommission`.
 
-**Asking you to ratify the reframe.** If you want a length axis back as a fifth prong, I'll add it — but I'd note the cold-qualifier rule could only get shorter by asking fewer questions, which weakens its actual job.
+## Carry-forward decisions (no review needed)
 
-## Five engineering carry-forwards documented (no review needed)
+These were judgment calls inside the framing. Documenting so they don't surface as surprises in 4B/7:
 
-- **AI reply rule set documented.** 8 rules in priority order in `suggester.ts`. Cold-qualifier first, then 4 keyword rules, then 3 lead-state rules, then default. Future expansions extend between existing positions, not by rewiring priority.
-- **Tone vocabulary markers documented in `TONE_MARKERS`.** Public contract for Session 8B's Content Studio templates. Case-insensitive verify; outputs use mixed case naturally.
-- **PRD tone-name ambiguity resolved.** PRD lists both "Short Reply / Detailed Reply" and "Short / Detailed" in different places. Seed `MessageTone` type uses the "Reply"-suffixed names — our `Tone` union matches.
-- **Cebuano native-speaker audit explicitly deferred to Session 9.** Current Cebuano output is template-wrap with `Maayong adlaw, {name}!` opener and `Salamat kaayo — hinaut nga makatabang ni nimo.` closer. Markers locked by verify; nuance and grammar review pending.
-- **`applyTone` flagged as Content Studio foundation for Session 8B.** The dispatcher+per-tone-shaper pattern extracts cleanly. Content Studio templates should compose `applyTone` directly.
+- **All 6 non-For-Sale category pages completed in 4A** via the shared `CategoryListingsPage` component. Framing left this open; building them all parallel-pattern keeps 4B from revisiting category landings.
+- **Role-mirror routes are 1-line re-exports** for the Menu only. `/broker/listings` and `/realtor/listings` import the agent Menu directly. Drill-down routes for broker/realtor are intentionally NOT mirrored in 4A — the broker-specific drill-down (distribution flow, AI-recommended-agents) is Session 7 and hangs off `/broker/listings/...`. For Session 4A's verify target ("Broker sees 'Send to N agents'"), the pure-helper assertion `primaryActionFor("Broker", 9)` → "Send to 9 agents" satisfies the requirement. When the role-aware spine becomes role-aware at every level in S7, it's additive on top.
+- **AI Listing Search explicitly deferred to Session 4B.** Framing explicitly allowed deferral.
+- **For Sale route nesting corrected.** Manifest originally had `/agent/listings/developers/...`; PRD-true path is `/agent/listings/for-sale/developers/...` (developer listings are For Sale's children). Manifest updated.
+- **Expected 404 noted on Unit Inventory page** — listing detail (`/listings/[unitId]`) is Session 5. Surfaced inline as a subtle italic note so it isn't mistaken for a bug.
+- **`useCurrentRole()` is new this session**, composed identically to `useCurrentUser` from the foundation phase. No existing helper to compose from.
+- **No data model adjustments needed.** Existing `Unit` / `Project` / `DeveloperProfile` types covered everything.
 
-## Verify suite delta (673 → 754)
+## Methodology refinement locked
+
+Per Session 3B closeout ratification: **prefer semantic-shape assertions over surface-property assertions where the semantic property is the actual concern.** Length / count are noisy proxies when output genuinely varies in length per intent.
+
+Applied throughout Section 10:
+- Role-aware action assertion measures **the label string itself**, not the length of the label or the number of buttons rendered. The label content IS the semantic property.
+- Drill-down density measured as **"≥6 units per project"** — directly the framing's threshold for "meaningfully populated," not "≥X kB of JSX rendered" or similar surface metric.
+- Unit ordering asserted as **"within each availability bucket, prices are non-decreasing"** — the actual invariant the UI relies on, not "first item has lower price than last item" (which would be the surface-property version).
+
+This methodology default carries forward.
+
+## Verify suite delta (754 → 917)
 
 | Section | Asserts | Delta | Notes |
 |---|---|---|---|
-| 1. FK Integrity | 403 | — | |
+| 1. FK Integrity | 468 | **+65** | each new unit pulls FK + role-aware aggregation asserts |
 | 2. Structural invariants | 70 | — | |
 | 3. Demo beats | 20 | — | |
 | 4. Role-aware aggregation lock | 5 | — | |
@@ -49,28 +72,33 @@ I replaced the word-count assertion with these two shape assertions. The other t
 | 6. Auth flow & schemas | 69 | — | |
 | 7. Dashboard math | 29 | — | |
 | 8. Inbox & contradiction | 22 | — | |
-| **9. AI Reply** | **80** | **+80** | new this session — 8 tones × pairwise + markers + 3 languages × pairwise + 4-pronged cold-vs-hot + determinism + agent-note + send mutation |
-| **10. PRD Coverage** | **29** | **+1** | renumbered from 9, asserts Session 3B advancement |
-| **Total** | **754** | **+81** | |
+| 9. AI Reply | 80 | — | |
+| **10. Listings spine** | **75** | **+75** | new this session — categories, derivations, role-aware action mapping, role-from-URL mapping, seeded-prop anchors |
+| **11. PRD Coverage** | **52** | **+23** | renumbered from 10; Session 4A advancement (11 routes × 2 assertions + aggregate) |
+| **Total** | **917** | **+163** | |
 
 ## Demo walk (validated end-to-end)
-1. From the Lead Inbox, tap Maria Santos's row → `/agent/leads/lead-instagram-01`.
-2. Header card shows: Maria Santos avatar, Hot badge, **Instagram** channel ribbon, "Interested in Laurel Hills Estate — Unit 12A" subtitle, Profile shortcut button.
-3. Thread renders the seeded messages with buyer left (canvas-sunken), agent/AI right (sage-soft / gold-soft).
-4. Inline AI Suggested Reply panel appears above composer with gold-soft surface. Rule shown: `default-check-in` (or similar based on last buyer message). Text in canvas-raised inner box. Action chips below.
-5. Tap × to dismiss → panel collapses to a gold "AI Reply" pill on the right; tap again → panel returns.
-6. Tap Refine → bottom sheet opens with Regenerate + 4 tone shortcuts + 3 language shortcuts. Active tone marked. Tap "Make warmer" → tone switches to Friendly Agent → suggestion text updates with "Hi Maria! I'm really glad you reached out..."
-7. In composer, tap a different tone chip (e.g. "Investor") → suggestion regenerates with yield/ROI/appreciation vocabulary.
-8. Tap the language pill → dropdown shows English/Tagalog/Cebuano → pick Tagalog → suggestion regenerates with "Kumusta, Maria po!" opener.
-9. Tap Attach → bottom sheet opens, files grouped by category. Select 2 → chips appear in composer.
-10. Tap "Use this" on the AI panel → suggestion text lands in textarea; any suggested file IDs auto-stage as additional attachments.
-11. Tap Send → message slides into the thread bottom with the sage-soft "agent" bubble, a small "Friendly Agent · Tagalog" sparkle pill above the body, paperclip indicator showing attachment count, sent-check.
-12. Composer + selected attachments reset; AI panel updates for the next reply.
-13. Test the Cherry-equivalent path: visit `/agent/leads/lead-noise-01` (JM Garcia, "is this still available?") → AI panel shows the `cold-qualifier` rule, text reads "Thanks for reaching out. To make sure I match you with the best options, may I ask: what is your target budget, preferred location, and rough timeline to buy?", action chips show only "Send qualifying questions" (no booking).
-14. Test the financing path: in the conversation thread, the seed has a buyer message containing "loan" or "financing" — the AI panel's `agentNote` strip appears at the bottom in subdued italic: "Note for you: Please confirm final figures with the developer, bank, or legal team before sending."
+
+1. From any logged-in role (Agent / Broker / Realtor), tap **Listings** in the nav (or visit `/{role}/listings`).
+2. Menu shows 7 category tiles. Counts visible per category. Subtitle shifts by role: Agent reads "Browse inventory and share with your buyers"; Broker reads "Browse inventory and distribute to your team"; Realtor reads "Browse inventory and distribute across your network."
+3. Tap **For Sale** tile → For Sale page with two tabs. Developer Listings tab (default) shows 6 developer preview cards.
+4. Tap **"See all →"** in the Developer Listings preview → full Developer Listings page (#16). 5 developer cards with location chips, project counts, available unit counts, average commission rate, and 3 project-name preview tags per developer. "New inventory" badge on Landmasters, Rockwell, SMDC.
+5. Tap **Landmasters** → Developer Project View (#17). Hero card with location chips + price range; 3 project cards (Laurel Hills Estate / Cebu Prime Residences / Mandaue Skyline Tower) each with status badge, total/available unit counts, "From ₱X" price label, role-aware action row.
+6. Tap **Cebu Prime Residences** → Unit Inventory View (#18). Project hero with stats (7 total units, 5 available, 3% commission). 8 filter chips with counts (All 7, Available 5, Reserved 1, Sold 0, Studio 1, 1BR 2, 2BR 3, 3BR+ 1).
+7. Tap **1BR** chip → list filters to 2 1BR units (Deluxe + Smart). Tap **Available** → 5 units.
+8. Each unit card shows: type, availability badge (color-coded), bed icon + bedrooms, area, floor level, view orientation, price (compact + whole), reservation, monthly equity, commission, financing-option chips, role-aware action button + Details affordance hidden in compact mode.
+9. Switch role: change URL to `/broker/listings/for-sale/developers/dev-landmasters/proj-cebu-prime` → same page, but every unit card's action button now reads "Send to 9 agents" instead of "Share to my pipeline."
+10. Same URL with `/realtor/...` → action button reads "Send to network."
+11. Back navigation preserves position via standard Next.js routing.
+12. Tap a unit's card body → routes to `/{role}/listings/{unitId}` → **404** (Session 5 work, surfaced inline as italic subtle note).
+13. Visit **Foreclosure** (or any of the 6 non-For-Sale categories) → category landing with filtered listing cards, each with role-aware action row.
 
 Stop signal met across the board.
 
+## One framing question to surface for Session 4B
+
+**For Private Offerings (#19) full surface in Session 4B:** PRD specifies verification status (Verified / Pending / Unverified) for private offerings. Should the verification status workflow be built in 4B alongside the Private Offerings full surface, or deferred to Session 9 polish? My instinct is to ship the read-side display in 4B (badge on each card) and defer the verification workflow (broker approves an unverified listing, signature/document capture, etc.) to Session 9 polish. Confirming this for 4B planning.
+
 ---
 
-**Next:** Session 4A — Listings Menu + For Sale category + Developer drill-down (per the corrected plan, NOT the surfaces I had wrongly proposed earlier). Awaiting your go-ahead, framing notes, and ratification of the cold-vs-hot semantic-shape reframe.
+**Next:** Session 4B — Private Offerings full surface (#19), My Listings (#20, agent-side private inventory), AI Listing Search (deferred from 4A). Awaiting framing notes and ratification of the carry-forward decisions above.
