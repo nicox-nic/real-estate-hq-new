@@ -1,117 +1,143 @@
-# Session 8A — Report
+# Session 8B — Report
 
 **Branch:** `main`
-**Stop signal:** met. Manager Analytics (#33) + Notifications (#45) shipped at full PRD spec. Two new chart wrappers extracted at point of construction. Single parameterized component pattern reaches 7 uses across 3 sessions. **Zero new entity types** across 8 surface-bearing sessions. Maria + Laurel + Alyssa narrative chain extends to 8 surfaces across 6 sessions via notif-001.
+**Stop signal:** met. Content Studio (#34) + Integrations (#35) + Settings (#36) all shipped. Bell icon landed in AppShell. **FULL PRD COVERAGE ACHIEVED: 46/46 routes complete.** Build is feature-complete; Session 9 closes with polish + demo dry-run + final zip.
 
 ## At a glance
 - **TypeScript:** clean
-- **Build:** **56 routes** (+3 from 7B's 53). New: /broker/insights, /realtor/insights, /notifications.
-- **Verify:** **1732 / 1732 passed** (+73 from 7B's 1659). **Section 21 (Analytics & Notifications): 68 asserts.**
-- **PRD coverage:** **43 complete** · 0 scaffolded · 3 pending of 46
-- **Walkability:** /broker → Insights → 6-chart Team Analytics page → tap to /broker/leaderboard. Switch to /realtor/insights → same composition, different scope. /notifications → 13 notifications with filter chips + tap-through routing.
+- **Build:** **59 routes** (+3 from 8A's 56). New: /agent/content-studio + /integrations + /settings.
+- **Verify:** **1871 / 1871 passed** (+139 from 8A's 1732). **Section 22 (Content Studio + Integrations + Settings): 131 asserts.**
+- **PRD coverage:** **46 complete · 0 scaffolded · 0 pending of 46 — FULL PRD COVERAGE MILESTONE.**
+- **Walkability:** Content Studio with 12 templates × 8 tones × 3 languages → platform-flavored previews → copy. Integrations with 18 cards, OAuth-style connect flow, manage sheets. Settings end-to-end with working toggles.
 
-## What shipped (Session 8A's 2 promotions + 1 concentration point + 2 chart primitives + 1 component)
+## Decision: kept 8B together (single session)
+
+Framing's default was to split into 8B-1 + 8B-2. **Kept together.** Reasoning:
+- Integration entity, NotificationCategory, Tone, Language all already existed (Sessions 1, 3B, 5A)
+- 18 IntegrationProvider values + 10 pre-connected seeded already
+- 8 Tone values + applyShareTone + applyLanguage all reusable as-is
+- Settings composes from existing User + NotificationCategory + Integration + PayoutAccount entities
+
+**Single session is justified when surfaces are infrastructure-leveraged, not infrastructure-constructive.** Same logic as 7B's kept-together decision.
+
+## What shipped
 
 | # | Route / Surface | Notes |
 |---|---|---|
-| #33 | manager-analytics | pending → **complete**. Parameterized ManagerAnalytics for /broker/insights + /realtor/insights. 6-chart grid composing 3 chart primitives (DonutChart + BarChart + LineChart). |
-| #45 | notifications | pending → **complete**. /notifications composing with existing NotificationItem entity. 14 PRD categories + 3 priority levels + filter + mark-as-read + tap-through routing. |
-| — | `lib/logic/analyticsDerivations.ts` | concentration point: 6 pure-function derivations + composite snapshot |
-| — | `components/ui/BarChart.tsx` | brand-tinted Recharts wrapper |
-| — | `components/ui/LineChart.tsx` | brand-tinted Recharts wrapper (supports filled area variant) |
-| — | `components/manager/ManagerAnalytics.tsx` | 7th use of single-parameterized-component pattern |
-| — | `app/notifications/page.tsx` | Notifications surface |
+| #34 | content-studio | pending → **complete**. `/agent/content-studio` with 12 templates × 8 tones × 3 languages × 7 destination preview variants. |
+| #35 | integrations | pending → **complete**. `/integrations` with 18 cards + OAuth-style connect + manage sheets. |
+| #36 | settings | pending → **complete**. `/settings` with profile + notifications (3 channels + 14 categories) + language + role-aware team management + payouts + account + about. |
+| — | `lib/logic/contentTemplates.ts` | concentration point: CONTENT_TEMPLATES registry + generateContentTemplate sibling helper |
+| — | `app/agent/content-studio/page.tsx` | Content Studio UI with PlatformPreview (7 destination variants) |
+| — | `app/integrations/page.tsx` | 18 cards + PROVIDER_META table + OAuth simulator + ManageSheet |
+| — | `app/settings/page.tsx` | Multi-section settings with role-aware Team Management |
+| — | `components/layout/AppShell.tsx` | **Bell icon landed (8A carry-forward)** — sidebar footer with unread count badge routing to /notifications |
 
 ## Architectural decisions documented
 
-### 1. Two chart wrappers extracted at point of construction — cross-file invariant pattern
+### 1. CONTENT_TEMPLATES is a REGISTRY, NOT a rule table — Rule of Seven stands
 
-BarChart and LineChart join DonutChart as the brand-tinted chart primitives. Decision rationale:
-- **BarChart** has 2 callers in Session 8A alone (Response Time + Conversion by Stage) → Rule of Three earned plus the cross-file invariant
-- **LineChart** has 1 caller in 8A (Lead Volume) → extraction NOT justified by Rule of Three alone, BUT justified by the **cross-file invariant** that Section 21 documents: no inline Recharts on Analytics pages
+Framing asked whether CONTENT_GENERATION_RULES would be the 8th declarative rule table. **Answer: no.** Different shape:
+- The 7 rule tables score outputs (`given inputs → score + firedRules + reasoning`)
+- CONTENT_TEMPLATES maps types to builders (`given content type → base template via build(ctx)`)
 
-**Pattern flag for future sessions**: when a cross-file architectural invariant exists, wrappers earn extraction at first use regardless of caller count. **Rule of Three is for shared abstractions; cross-file invariants are a separate, complementary discipline.** Future sessions referencing this pattern should cite both reasons distinctly.
+CONTENT_TEMPLATES is a **declarative REGISTRY** (a complementary discipline to rule tables). Both are declarative-data-over-imperative-logic, but:
+- **Rule tables**: keyed by domain entities, weighted-rule outputs, scoring + firedRules + reasoning
+- **Registries**: keyed by enum values, builder functions, deterministic templated output
 
-### 2. Single parameterized component pattern: 7th use across 3 sessions
+**Rule of Seven stands.** AGENT_RECOMMENDATION_RULES (7B) remains the most recent rule table. Future sessions may earn an 8th rule table from a different domain; this isn't it. Section 22 verify-locks the architectural decision via shape assertion (CONTENT_TEMPLATES uses .build(), not .score(); no firedRules, no matchPercent).
 
-ManagerAnalytics joins ManagerDashboard + Leaderboard (7A) + AgentsModule + AgentProfile + TeamUpdates + AwardsCampaigns (7B) for the 7th application. **80% identical + 20% role-driven = parameterize** — applied 7 times in the codebase. The pattern is internalized.
+### 2. generateContentTemplate is the 4th sibling-helper
 
-### 3. Zero new entity types — 8 surface-bearing sessions, zero entities introduced
+Joins:
+1. `applyShareTone` ↔ `applyTone` (5A — outbound vs inbound)
+2. `recommendFilesFor` ↔ `generateShareMessage` (5B — files vs text)
+3. `recommendAgentsForListing` ↔ `scoreAgentForListing` (7B — ranked set vs single score)
+4. **`generateContentTemplate` ↔ `generateShareMessage` (8B — templated vs share-message)**
 
-NotificationItem was already in Session 1's type model with all 14 PRD categories + 3 priority levels + read state + relatedEntityId for tap-through. Session 8A composes 100% with existing data. **The Session 1 entity model is paying back at scale across the entire build.** This is the strongest possible validation of the field-not-entity discipline.
+Composes with `applyShareTone` + `applyLanguage` — no new tone or language dispatcher. Pipeline:
+```
+base = CONTENT_TEMPLATES[type].build(ctx)
+toned = applyShareTone(base, tone, options)
+translated = applyLanguage(toned, language, options)
+```
 
-### 4. Engine-honest analytics, no fabricated trends
+### 3. Zero new entity types — 9 surface-bearing sessions, zero entities introduced
 
-All values derive from underlying seed data. Examples:
-- Total Leads in broker scope = 17 (actual count)
-- Response time: 14/17 in "24h+" bucket — honest (no firstContactedAt field)
-- Lead volume: includes a zero week (Apr 28) — honest distribution
-- Conversion funnel: 100% → 83% (Site Visit) → 50% (Contract Signed) — engine-derived
+| Decision | Resolution |
+|---|---|
+| Content Studio | Composes with existing Tone + Language + Listing + BuyerProfile |
+| Integrations | Composes with existing Integration entity (18 providers already enumerated) |
+| Settings | Composes with existing User + NotificationCategory + Integration + PayoutAccount |
 
-Per Q1 + the engine-honest discipline canonical across 5 sessions.
+**This is the strongest possible validation of the field-not-entity discipline.** The Session 1 entity model spans the entire PRD scope with zero amendments across 9 surface-bearing sessions.
 
-### 5. Cross-surface invariant on chart wrappers
+### 4. Single parameterized component pattern: still at 7 uses
 
-Manager Analytics page imports ONLY from `@/components/ui/{DonutChart,BarChart,LineChart}` and `@/lib/logic/analyticsDerivations` — never directly from `recharts`. The discipline is enforced by code organization. Section 21 documents it as a soft assertion (hard enforcement would require lint rules).
+8B's surfaces are agent-only (Content Studio + Integrations + Settings — universal /settings, not parameterized for broker/realtor). **The 7 uses from 7A + 7B + 8A remain the count.** Pattern is internalized; 8B didn't need it.
 
-## Demo-unflattering signals flagged for Session 9 polish
+### 5. Bell icon landed (8A carry-forward)
 
-Per framing instruction to flag these explicitly rather than fake the math:
+Sidebar footer in AppShell with:
+- Bell icon + terracotta unread count badge (9+ overflow for high counts)
+- Routes to `/notifications` universally regardless of role
+- Computes unread count from `seedNotifications.filter(n => !n.read)` — single source of truth
+- `data-testid="appshell-bell"` + `data-unread-count` for verify lock
 
-| Signal | Status | Reviewer Call |
-|---|---|---|
-| Response time: 14/17 in "24h+" bucket | Engine-honest (no firstContactedAt field in seed) | Seed firstContactedAt for healthier distribution OR keep as credibility statement |
-| Lead volume has a zero week (Apr 28 = 0) | Honest distribution | Seed 2-3 additional leads OR keep as honest signal |
-| 8+ distinct sources, only top 6 in donut | Acceptable, no action recommended | — |
+**Flag for Session 9**: not in mobile bottom nav (would crowd 5-icon layout).
 
-Same pattern as 7A's KPI honesty (9 active agents vs mockup's 128). **Engine-honest defaults, reviewer-ratifiable polish in Session 9.**
+### 6. PROVIDER_META is a declarative configuration table
 
-## Engine integrity locks (Section 21)
+Per-provider mapping from IntegrationProvider to {icon, iconBg, iconFg, description, manageRows}. **4th use of "declarative configuration tables for UI affinity"** alongside NOTIFICATION_CATEGORY_ICONS, STAGE_UI, PLATFORM_COLORS. Distinct from rule tables (scoring) and registries (builders) — these are static UI-shape mappings.
+
+## 4-pronged structural proof: tone × language combinatorial coverage
+
+**Tone variation (Section 22)** — 8 tones produce 8 distinct outputs for Facebook Post:
+| Prong | Invariant |
+|---|---|
+| 1 | 8 tones produce 8 outputs |
+| 2 | Pairwise distinctness (`new Set(outputs).size === 8`) |
+| 3 | All outputs non-empty |
+| 4 | Professional Broker output contains formal marker (regards/sincerely/respectfully) |
+
+**Language variation (Section 22)** — 3 languages produce structurally distinct outputs:
+| Prong | Invariant |
+|---|---|
+| 1 | Tagalog contains "po" |
+| 2 | Cebuano contains "Maayong" AND NOT "po" |
+| 3 | English contains neither "po" nor "Maayong" |
+| 4 | All three pairwise distinct |
+
+**8 tones × 3 languages × 12 templates = 288 combinations** — coverage assertions ensure the matrix is healthy.
+
+## Integration composition locks (Section 22)
 
 | Invariant | Check |
 |---|---|
-| Snapshot.totalLeads matches filtered seed count | No fabrication |
-| Lead volume points = 6 (weekly buckets) | Time-window correctness |
-| Lead volume sum ≤ total leads | Engine integrity |
-| Response time bucket sum = total leads | No leads lost in bucketing |
-| Lead source sum = total leads | No leads lost in groupBy |
-| Source percentages sum to ~100 (± 5) | Rounding tolerance |
-| Temperature sum = total leads | Distribution completeness |
-| Lead Generated stage = 100% conversion (by definition) | Funnel anchor |
-| Each subsequent stage ≤ previous stage | Funnel monotonicity (8 pairs) |
-| Commission status sum > 0 | Broker sees their share |
-| Realtor totalLeads ≥ broker totalLeads | Role-aware scope |
+| seedIntegrations has exactly 18 PRD providers | Totality |
+| Each of 18 IntegrationProvider values present | Coverage × 18 |
+| Pre-seeded connection count ≥ 3 (PRD scope minimum) | 10 actual |
+| Pre-seeded connection count ≤ 15 (some available for demo) | 10 actual |
+| SMS Provider has errorMessage seeded | Demo issue narrative |
 
-**Same defensive math posture as Session 6's commission tracking — every aggregation reconciles to underlying data.**
+## Mockup ambiguities surfaced (flagged for Session 9 ratification)
 
-## Notification composition locks (Section 21)
+1. **CONTENT_GENERATION_RULES vs CONTENT_TEMPLATES**: my architectural read is REGISTRY not rule table. Reviewer can request rule-table refactor if a scoring shape is preferred.
+2. **Cebuano native-speaker audit**: programmatic "Maayong adlaw" wrappers via applyLanguage. **Explicitly deferred to Session 9 per framing instruction.**
+3. **Bell icon mobile bottom nav**: not added (5-icon layout would crowd). Flag for Session 9.
+4. **Generated content uses image placeholders**: real listing imagery a Session 9 polish if demo needs.
 
-| Invariant | Check |
-|---|---|
-| Seed has ≥ 8 notifications (PRD requested 8-12) | 13 present |
-| Seed exercises ≥ 5 categories | 6+ categories present |
-| Every notif has valid priority (Urgent/Important/Normal) | Type enforcement at runtime |
-| Every notif has boolean read field | Schema integrity |
-| Demo agent has ≥ 8 notifications | Demo walk validity |
-| Maria/Laurel narrative chain notification exists | Cross-session chain extension |
-| That notification is "New Hot Lead" category | Category correctness |
-| That notification has Urgent priority | Priority correctness |
+## Real LLM hookup notes (post-build phase)
 
-## Narrative chain status: 8 surfaces across 6 sessions
+Documented for handoff:
+- **Content Studio**: real Claude API per template + tone + language. Current is templated string assembly.
+- **AI Reply (3B)**: real LLM for reply synthesis.
+- **Agent Recommendation (7B)**: rule-based scoring is intentionally interpretable; LLM could add judgment layer.
+- **AI Coaching (7B)**: real LLM for coaching synthesis.
 
-**Maria + Laurel + Alyssa arc** now spans:
-1. **share-006** (Sessions 5A/5B): Maria received Alyssa's share, opened all 4 attachments
-2. **deal-012** (5C): Maria at Buyer Qualified
-3. **comm-001** (6): ₱127,500 commission For Closing
-4. **Commission Timeline detail** (6): 6-stage progression
-5. **Broker dashboard Top Performers** (7A): Alyssa #1
-6. **Leaderboard top closer** (7A): Alyssa
-7. **AgentProfile + Distribution recommendation + bonus-001** (7B): Alyssa recommended for listing-laurel-12a
-8. **notif-001 "🔥 New Hot Lead: Maria Santos · 92% match for Laurel Hills 12A"** (8A): the demo's first notification surface
+**None blocking for the prototype.** All work end-to-end with deterministic logic; LLM is a swap-in upgrade.
 
-**Eight surfaces, six sessions, single arc.** Section 21 adds 3 more invariant locks tying the chain together.
-
-## Verify suite delta (1659 → 1732)
+## Verify suite delta (1732 → 1871)
 
 | Section | Asserts | Delta | Notes |
 |---|---|---|---|
@@ -132,55 +158,102 @@ Same pattern as 7A's KPI honesty (9 active agents vs mockup's 128). **Engine-hon
 | 18. Commission Tracking marquee | 43 | — | |
 | 19. Manager Dashboards | 53 | — | |
 | 20. Team & Distribution | 107 | — | |
-| **21. Analytics & Notifications** | **68** | **+68** | NEW — AnalyticsSnapshot totality × 7 derivations + engine integrity (totalLeads matches, lead volume bounds, response time bucket sum, source pct sum ± 5, temperature sum) + conversion funnel monotonicity × 8 stage pairs + commission status sum + role-aware scope + Notification composition + 14 PRD categories type-enforced + seed ≥ 8 + ≥ 5 categories present + every notif priority valid + every notif read boolean + Maria/Laurel narrative chain assertion + demo agent has notifications + manifest promotion × 2 |
-| 22. PRD Coverage | 100 | +5 | renumbered from 21; Session 8A advancement |
-| **Total** | **1732** | **+73** | |
+| 21. Analytics & Notifications | 68 | — | |
+| **22. Content Studio + Integrations + Settings** | **131** | **+131** | NEW — CONTENT_TEMPLATES registry totality × 12 types × 6 properties each (72) + architectural decision (registry not rule-table) + generateContentTemplate pure determinism × 3 + 4-pronged tone variation + 4-pronged language variation + Integration totality × 18 + pre-seeded connection bounds + SMS errorMessage + NotificationCategory totality + zero-new-entity-types invariant × 3 routes + manifest promotion × 3 + bell icon data |
+| 23. PRD Coverage | 108 | +8 | renumbered from 22; Session 8B advancement + full coverage milestone |
+| **Total** | **1871** | **+139** | |
 
-## Demo walk (validated end-to-end)
+## Demo walk (validated end-to-end across all three new surfaces)
 
-1. **Broker analytics**: From `/broker` → tap "Insights" in sidebar → `/broker/insights`:
-   - Header: "Team Analytics" + "Performance insights across your 9 agents" + Last 6 weeks + Export
-   - Summary strip: Total Leads 17 / Closed Deals 6 / Pending Commissions ~₱594K / Active Agents 9
-   - **6-chart grid renders**:
-     - Lead Volume Over Time: real 6-week sage area chart (Apr 21 = 1, Apr 28 = 0, May 5 = 2, May 12 = 6, May 19 = 4, May 26 = 2)
-     - Response Time Distribution: sage→gold→amber→terracotta gradient showing < 1h=2, 1-4h=0, 4-24h=1, 24h+=14
-     - Lead Source Performance: donut with Facebook Lead Ads #1 (3/18%), Referrals (2/12%), TikTok (2/12%), etc.
-     - Conversion by Stage: blue bars showing 89% Qualified → 83% Site Visit → 50% Contract → 33% Released
-     - Lead Temperature: donut Hot 8 / Warm 2 / Nurture 3 / Cold 4
-     - Commission Status: donut showing manager's share aggregated across statuses
-   - Top Performers list: Alyssa Garcia #1 + #2 + #3
-2. **Realtor analytics**: Switch to `/realtor/insights` → same composition; **different scope: Total Leads 21 (vs broker's 17), 12 agents**. Parameterization confirmed.
-3. **Notifications**: Navigate to `/notifications`:
-   - Bell icon header + "13 unread of 13 total" (all unread initially)
-   - Filter chips: All 13 / Unread 13 / + present categories
-   - First notification: 🔥 New Hot Lead: Maria Santos · 92% match for Laurel Hills 12A — Urgent badge + unread dot
-   - Mark Read on individual → unread count decrements
-   - Mark All Read → all visual indicators flip
-   - Tap notif-001 → routes to `/agent/leads/lead-instagram-01` (Maria's lead)
+1. **Content Studio**: From `/agent` → tap "Content Studio" → `/agent/content-studio`:
+   - 12-template grid renders with destination icons (Facebook, Instagram, TikTok music note, Reels film, etc.)
+   - Pick "Facebook Post" → tone "Friendly Agent" + English + listing-laurel-12a in context
+   - Tap Generate → 600ms Wand2 animate-pulse → Facebook card preview: avatar + "Alyssa Garcia · Just now · Public" + "Just listed in Taguig City 🏡 / Laurel Hills Estate — Unit 12A / ₱18.5M..." + reaction row
+   - Switch tone to "Professional Broker" → output gains "regards/sincerely"
+   - Switch language to "Tagalog" → output gains "po"
+   - Switch language to "Cebuano" → "Maayong adlaw" opener, no "po"
+   - Switch template to "WhatsApp Message" → chrome flips to green bubble on tan with ✓✓
+   - Switch template to "Email Follow-up" → Language picker disables non-English; envelope chrome shown
+   - Tap Copy → 1.5s "Copied!" flash
+2. **Integrations**: Navigate to `/integrations`:
+   - 18 cards rendered in 3-column grid
+   - Summary strip: Connected 10 / Available 7 / Issues 1 (terracotta accent)
+   - SMS Provider card shows "Issue" badge + "Provider account inactive — renew Semaphore subscription" + terracotta "Reconnect" CTA
+   - Tap "Connect" on n8n → 800ms spinner → flips to Connected with lastSyncAt update
+   - Tap "Manage" on Facebook Lead Ads → ManageSheet modal: "Connected page: Landmasters Properties" + 4 manage rows + Disconnect terracotta CTA
+   - Filter "Issues" → SMS Provider alone shown
+3. **Settings**: Navigate to `/settings`:
+   - Profile section: Alyssa Garcia + Agent role + Verified badge + license + Email/Mobile/Reports-to field rows
+   - Notification Preferences: Push/Email/SMS delivery channel toggles + 14 category toggles
+   - Language section: English chip active (toggleable)
+   - Integrations link card: "10 connected · 8 available" + chevron
+   - Payout Accounts section: BDO/BPI rows + Default badge
+   - Account section: Change password / Two-factor (Recommended) / Export my data
+   - Help Center + About + terracotta Sign Out
+4. **Bell icon**: AppShell sidebar footer renders Bell with terracotta unread badge (12 unread); tap → `/notifications`
 
-Stop signal met across both surfaces.
+## Coverage trajectory — FULL PRD COVERAGE ACHIEVED
 
-## Coverage trajectory
+**46 of 46 PRD routes complete.** Build is feature-complete.
 
-**43 of 46 PRD routes complete after Session 8A.** Remaining 3:
-
-| # | Route | Session target |
+**The 46 routes:**
+| # | Route | Session |
 |---|---|---|
-| 34 | content-studio | 8B |
-| 35 | integrations | 8B |
-| 36 | settings | 8B |
+| 01 splash-login | / | 1 |
+| 02 create-account-role | /signup/role | 2 |
+| 03 agent-registration | /signup/agent | 2 |
+| 04 broker-registration | /signup/broker | 2 |
+| 05 realtor-registration | /signup/realtor | 2 |
+| 06 upload-documents | /signup/upload-documents | 2 |
+| 07 verification-status | /signup/verification-status | 2 |
+| 08 forgot-password | /signup/forgot-password | 2 |
+| 09 agent-dashboard | /agent | 3A |
+| 10 buyer-conversation | /agent/leads/[id] | 3B |
+| 11 listing-detail | /agent/listings/[id] | 4A |
+| 12 listings-spine | /agent/listings | 4A |
+| 13 listings-by-category | /agent/listings/category/[cat] | 4A |
+| 14 listings-private | /agent/listings/private | 4B |
+| 15 my-listings | /agent/listings/my | 4B |
+| 16 ai-listing-search | /agent/listings/search | 4B |
+| 17 share-listing | /agent/leads/[id]/share | 5A |
+| 18 listing-preview | /preview/[token] | 5A |
+| 19 attach-files | /agent/leads/[id]/share/files | 5B |
+| 20 smart-link-engagement | /agent/share/[id] | 5B |
+| 21 site-visit-booking | /agent/site-visits | 5C |
+| 22 deals-pipeline | /agent/deals | 5C |
+| 23 deal-detail | /agent/deals/[id] | 5C |
+| 24 closed-deal-log | /agent/deals/[id]/close | 5C |
+| 25 commission-tracking | /agent/commissions | 6 |
+| 26 commission-timeline | /agent/commissions/[id]/timeline | 6 |
+| 27 broker-dashboard | /broker | 7A |
+| 28 realtor-dashboard | /realtor | 7A |
+| 29 agents-module | /broker/agents · /realtor/agents | 7B |
+| 30 agent-profile | /broker/agents/[id] · /realtor/agents/[id] | 7B |
+| 31 team-updates | /broker/team-updates · /realtor/team-updates | 7B |
+| 32 awards-bonuses | /broker/campaigns · /realtor/campaigns | 7B |
+| 33 manager-analytics | /broker/insights · /realtor/insights | 8A |
+| 34 **content-studio** | **/agent/content-studio** | **8B** |
+| 35 **integrations** | **/integrations** | **8B** |
+| 36 **settings** | **/settings** | **8B** |
+| 37 commission-detail-link | /agent/commissions/[id] | 6 |
+| 38-44 (sub-routes + listing categories) | ... | 4A, 4B |
+| 41 broker-distribute | /broker/listings/[id]/distribute | 7B |
+| 45 notifications | /notifications | 8A |
+| 46 leaderboard-full | /broker/leaderboard · /realtor/leaderboard | 7A |
 
-Session 8B (peak token-volume session) ships the final 3 surfaces. Session 9 polish + demo dry-run + final zip closes the build.
+## Carry-forwards to Session 9 (polish + demo dry-run + final zip)
 
-## Carry-forwards to Session 8B + 9
+1. **firstContactedAt field on Lead** — seed realistic distribution per 8A ratification. Field-not-entity. Engine math stays honest.
+2. **Cebuano native-speaker audit** of 12 templates × Cebuano output — currently programmatic, needs cultural grammar review.
+3. **Lead volume zero week (Apr 28)** — keep engine-honest per 8A ratification.
+4. **Bell icon mobile bottom nav** — currently desktop sidebar only. Revisit if mobile demo path needs.
+5. **Realtor listing distribution mirror** — flagged in 7B; revisit if needed.
+6. **Demo dry-run script**: 46-surface walk with narrative beats.
+7. **Final zip** for delivery handoff.
+8. **Real LLM hookup notes** documented — flag for post-build.
 
-1. **Demo-unflattering signal: response time distribution.** Reviewer ratification needed — seed firstContactedAt or keep engine-honest.
-2. **Demo-unflattering signal: lead volume zero week.** Same call.
-3. **Content Studio (#34)**: AI generation features per PRD (caption / post / script generators). Likely earns the **8th declarative rule table** (CONTENT_GENERATION_RULES?) if it composes naturally — flag for Session 8B kickoff.
-4. **Integrations (#35)**: connection status surfaces for Facebook Lead Ads / WhatsApp / Calendar / etc. Lower complexity.
-5. **Settings (#36)**: profile / notifications / preferences / role-aware switches. Lower complexity.
-6. **Bell icon in AppShell header**: not yet added; mockup-equivalent. Add as routing entry in AppShell so the bell badge surfaces unread count from anywhere. **Flag for Session 8B or 9.**
+## Block-close — FULL PRD COVERAGE MILESTONE
 
-## Block-close note
+**46/46 PRD coverage. 59 routes. 1871/1871 verify. Zero new entity types across 9 sessions. Rule of Seven established. Sibling-helper pattern at 4 uses. Single parameterized component pattern at 7 uses. Narrative chain at 8 surfaces across 6 sessions.**
 
-8A closes the analytics + notifications work at full PRD spec. **The build is now at 93% PRD coverage** (43/46). Two new chart primitives extracted with disciplined justification. **Eight surface-bearing sessions, zero new entity types — the Session 1 entity model is the build's most validated decision.** Session 8B's 3 remaining surfaces + Session 9 polish bring the build to landing.
+The build is feature-complete. Session 9 closes it.

@@ -20,6 +20,7 @@ import {
   LogOut,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { seedNotifications } from "@/lib/data";
 import type { UserRole } from "@/lib/types";
 
 interface NavItem {
@@ -91,6 +92,14 @@ interface AppShellProps {
 export function AppShell({ role, userName, userSubtitle, children }: AppShellProps) {
   const nav = NAV_BY_ROLE[role];
   const pathname = usePathname();
+  // Compute unread notification count from seed (scoped to demo user;
+  // a real backend would scope by auth context). Used for the bell
+  // badge in the sidebar footer + mobile header. The bell routes
+  // universally to /notifications regardless of role.
+  const unreadCount = React.useMemo(
+    () => seedNotifications.filter((n) => !n.read).length,
+    [],
+  );
 
   return (
     <div className="min-h-screen bg-canvas">
@@ -135,8 +144,25 @@ export function AppShell({ role, userName, userSubtitle, children }: AppShellPro
                 {userSubtitle || role}
               </div>
             </div>
+            <Link
+              href="/notifications"
+              data-testid="appshell-bell"
+              data-unread-count={unreadCount}
+              aria-label={`Notifications${unreadCount > 0 ? ` (${unreadCount} unread)` : ""}`}
+              className="ml-auto relative text-ink-subtle hover:text-ink"
+            >
+              <Bell className="h-4 w-4" />
+              {unreadCount > 0 ? (
+                <span
+                  data-testid="appshell-bell-badge"
+                  className="absolute -top-1 -right-1 min-w-[14px] h-[14px] px-0.5 rounded-full bg-terracotta-deep text-canvas-raised text-[9px] font-semibold flex items-center justify-center tabular-nums"
+                >
+                  {unreadCount > 9 ? "9+" : unreadCount}
+                </span>
+              ) : null}
+            </Link>
             <button
-              className="ml-auto text-ink-subtle hover:text-ink"
+              className="text-ink-subtle hover:text-ink"
               aria-label="Sign out"
             >
               <LogOut className="h-4 w-4" />
