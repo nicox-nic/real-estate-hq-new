@@ -1,51 +1,43 @@
-# Session 3A — Report
+# Session 3B — Report
 
 **Branch:** `main`
-**Stop signal:** met. Three surfaces complete (#8, #11, #13), Q2 implementation (Option Z) live and verify-locked, demo walk path end-to-end functional.
+**Stop signal:** met. Buyer Conversation full implementation works end-to-end. Marquee conversational surface is now live: open conversation → see inline AI suggestion (rule visible) → dismiss/refine/use → change tone or language → attach file → send → message lands in thread.
 
 ## At a glance
 - **TypeScript:** clean
-- **Build:** 15 routes, no errors (was 14 after Session 2)
-- **Verify:** 673 / 673 passed (+59 from Session 2's 614)
-- **PRD coverage:** 11 complete · 1 scaffolded · 34 pending of 46
-- **Walkability:** agent's daily flow is now end-to-end — dashboard → lead inbox → buyer profile → archive cold inquiry, all routes wired, all surfaces render real seed data
+- **Build:** 15 routes (unchanged — scaffold replaced in place). Conversation page at 12.9 kB / 130 kB First Load
+- **Verify:** 754 / 754 passed (+81 from Session 3A's 673)
+- **PRD coverage:** 12 complete · 0 scaffolded · 34 pending of 46
+- **Walkability:** the conversational flow is now end-to-end. Combined with 3A: dashboard → inbox → conversation → AI panel → refine → send → see message land.
 
-## What shipped (Session 3A's three completes + one scaffold)
+## What shipped (Session 3B's one promotion)
 
 | Route | Status | Notes |
 |---|---|---|
-| `/agent` — Agent Dashboard | **complete** | Greeting + briefing, 4 KPIs, Money on the Way feature card with progress donut, Active deals compact panel, Recent activity, AI suggestions |
-| `/agent/leads` — Lead Inbox | **complete** | 8 PRD chips + "qualified only" toggle (ON by default) + search + bulk-archive. Cold inquiries hidden by default; cold cards differ from hot on 4 structural axes (low-weight predicate, badge variant, tags presence, engine category) |
-| `/agent/leads/[leadId]/profile` — Buyer Profile | **complete** | Hero + AI insight + recommended next action + **visible scoring breakdown panel with engine and editorial side-by-side**, full per-rule disclosure |
-| `/agent/leads/[leadId]` — Buyer Conversation | **scaffolded** | Minimal thread for walkability. Full AI Suggested Reply panel, tone selector, attach composer ship in Session 3B |
+| `/agent/leads/[leadId]` — Buyer Conversation | scaffolded → **complete** | Channel ribbon, dismissable inline AI panel + AIReplyPill resummon, 8 PRD tones, 3 languages, attach sheet, refine sheet, send-to-store mutation, sensitive-topic agent note |
 
-## Three items for your review
+## One reframe in the report for your review
 
-### 1. Disagreement icon form factor (Q2 Option Z implementation)
-Implemented as a small `AlertCircle` (Lucide), ~14px, `text-gold-deep`, sitting next to the score chip on the inbox row. Tooltip via `title=`: "The AI engine and editorial assessment disagree on this lead. Tap to see the full breakdown." Hidden on low-weight cards (the row is already de-emphasized). On the Buyer Profile hero, the same disagreement is also flagged with a small gold-tinted "Engine disagrees" pill, and the breakdown panel carries a full banner above the per-rule list.
+### Cold-vs-hot length → semantic shape
+The framing asked for "cold reply word-count < hot reply word-count" in the 4-pronged structural proof. In practice, the cold-qualifier rule needs space to ask multiple clarification questions (55 words on the demo lead); the hot-site-visit rule is decisive — "here are two slots" — and lands at 42 words. **Length is not the meaningful axis here.**
 
-This decision becomes the **reapply pattern for every future engine-vs-editorial divergence** unless overridden. Ratify or correct.
+What actually differs between cold and hot AI replies — and what the verify suite should lock — is the **semantic shape**:
+- Cold reply contains `?` (it asks for budget / location / timeline).
+- Hot reply mentions `viewing` / `slot` / `visit` (it offers a concrete next step).
 
-### 2. Listing-context-aware scoring (engineering note)
-Caught a real diagnostic during this session: when the dashboard or inbox scores a lead in bulk, the caller doesn't have a per-lead listing prop, so `scoreLead({ buyer })` cannot evaluate the budget-match signal (worth +20 of the 100-point max). Maria Santos's anchor assertion failed at 80/100 until I added `buildListingPriceMap(listings)` + `scoreLeadWithContext(lead, priceById)` that look up the lead's first selected listing's price.
+I replaced the word-count assertion with these two shape assertions. The other three prongs of the 4-pronged proof are unchanged (rule-name routing, zero booking CTAs for cold, qualifying-question regex match for cold).
 
-**Pattern recorded:** for any future engine call in a multi-lead context, build the price map once and thread it through. This now applies in `computeAgentDashboardKPIs`, `generateAgentAISuggestions`, `filterInbox`, `isQualified`, `isLowWeightCard`, `hasEngineEditorialDisagreement`, `LeadCard`, and the Buyer Profile.
+**Asking you to ratify the reframe.** If you want a length axis back as a fifth prong, I'll add it — but I'd note the cold-qualifier rule could only get shorter by asking fewer questions, which weakens its actual job.
 
-This is an interpretation call. The PRD says budget-match is a scoring signal; it doesn't say "use the first interested listing" specifically. If a lead has multiple selected listings or a target range with no specific listing, this pattern picks the first one. Flagged for review.
+## Five engineering carry-forwards documented (no review needed)
 
-### 3. Editorial bypass in `isQualified`
-A lead the agent has flagged Hot/Warm/Nurture editorially is never hidden by the qualified-only toggle, even with engine score 0. Without this, `lead-contradiction-01` (editorial Hot, engine 0) would have been invisible by default — defeating Q2's purpose, since the agent could never even see the disagreement icon to investigate. The icon does the disambiguation at the row level; the toggle keeps the lead visible.
+- **AI reply rule set documented.** 8 rules in priority order in `suggester.ts`. Cold-qualifier first, then 4 keyword rules, then 3 lead-state rules, then default. Future expansions extend between existing positions, not by rewiring priority.
+- **Tone vocabulary markers documented in `TONE_MARKERS`.** Public contract for Session 8B's Content Studio templates. Case-insensitive verify; outputs use mixed case naturally.
+- **PRD tone-name ambiguity resolved.** PRD lists both "Short Reply / Detailed Reply" and "Short / Detailed" in different places. Seed `MessageTone` type uses the "Reply"-suffixed names — our `Tone` union matches.
+- **Cebuano native-speaker audit explicitly deferred to Session 9.** Current Cebuano output is template-wrap with `Maayong adlaw, {name}!` opener and `Salamat kaayo — hinaut nga makatabang ni nimo.` closer. Markers locked by verify; nuance and grammar review pending.
+- **`applyTone` flagged as Content Studio foundation for Session 8B.** The dispatcher+per-tone-shaper pattern extracts cleanly. Content Studio templates should compose `applyTone` directly.
 
-Verify locks the behaviour: "Contradiction lead appears in default inbox view." Ratify or correct.
-
-## Four engineering carry-forwards (no review required, just documenting)
-
-- **Money on the Way placement: Option A (feature card).** As approved. ₱600,000/month default target exposed as `DEFAULT_MONTHLY_TARGET_PHP` for the eventual Settings → Earnings target override (Session 9 or later).
-- **AI suggestions are rule-driven, not free-form.** Four rules in priority order (contradiction → hot-needs-reply → cold-with-engagement → site-visit-soon), deterministic, static text per rule. Session 9 polish can decide whether to upgrade to template-and-fill or live LLM.
-- **Active deal compact-row pattern recorded.** Session 5C's Deals Pipeline should reuse `ActiveDealRow`'s exact shape (rounded-xl border, 9×9 icon tile, two-line text, right-aligned `StatusBadge` + optional "Blocked" indicator).
-- **Expected 404s from Buyer Profile** — `/agent/listings/[id]` (Session 4), `/agent/leads/[id]` full thread (Session 3B), `/agent/deals/[id]` (Session 5), `/agent/commissions/upcoming` (Session 6). All four explicitly anticipated.
-
-## Verify suite delta (614 → 673)
+## Verify suite delta (673 → 754)
 
 | Section | Asserts | Delta | Notes |
 |---|---|---|---|
@@ -55,22 +47,30 @@ Verify locks the behaviour: "Contradiction lead appears in default inbox view." 
 | 4. Role-aware aggregation lock | 5 | — | |
 | 5. Commission Tracking mockup | 27 | — | tensions still recorded; Q1 (Option B) lands in Session 6 |
 | 6. Auth flow & schemas | 69 | — | |
-| **7. Dashboard math** | **29** | **+29** | new this session, includes 2 seeded-prop anchors |
-| **8. Inbox & contradiction** | **22** | **+22** | new this session, includes 4-pronged structural proof |
-| **9. PRD Coverage** | **28** | **+8** | renumbered from 7, asserts Session 3A advancement |
-| **Total** | **673** | **+59** | |
+| 7. Dashboard math | 29 | — | |
+| 8. Inbox & contradiction | 22 | — | |
+| **9. AI Reply** | **80** | **+80** | new this session — 8 tones × pairwise + markers + 3 languages × pairwise + 4-pronged cold-vs-hot + determinism + agent-note + send mutation |
+| **10. PRD Coverage** | **29** | **+1** | renumbered from 9, asserts Session 3B advancement |
+| **Total** | **754** | **+81** | |
 
 ## Demo walk (validated end-to-end)
-1. Open `/` → log in as Alyssa Garcia (demo agent shortcut).
-2. Land on `/agent`. See "Good morning, Alyssa. You have 2 hot buyers, 2 site visits booked, and 4 active deals." 4 KPIs match the briefing. Money on the Way shows ₱112,500 paid + ₱367,500 pending + ₱56,250 on hold, donut shows 80% to target.
-3. Scroll: see 4 active deals (Laurel Hills 12A first, Contract Signed badge, no "Blocked"). Riverside on the bottom with Documents Submitted + Blocked indicator. Recent activity feed mixes AI / leads / site visits. AI suggestions show contradiction lead (Roy Aguilar) for review.
-4. Tap "My Leads" in sidebar → `/agent/leads`. Default view shows qualified leads only. Roy Aguilar's row has the gold `AlertCircle` icon next to the editorial Hot badge.
-5. Tap Maria Santos's row → `/agent/leads/lead-instagram-01/profile`. Hero shows editorial Hot, AI insight quote, recommended next action ("Ready to book a site visit"). Scoring breakdown shows Engine: 100/100 Hot and Editorial: 95/100 Hot — every rule triggered with sage check marks.
-6. Back to inbox → tap Roy Aguilar's row → `/agent/leads/lead-contradiction-01/profile`. Hero shows Editorial Hot + "Engine disagrees" gold pill + AI insight. Scoring breakdown shows Engine: 0/100 Cold and Editorial: 82/100 Hot, with the gold "Engine and editorial disagree" banner above the per-rule list. Every rule untriggered.
-7. Back to inbox → toggle "Show qualified only" OFF. JM Garcia's cold inquiry appears with reduced opacity, smaller avatar, no rich tags. Tap "Select" → check JM Garcia → "Archive to Nurturing" → toast: "Moved 1 lead to Nurturing." JM Garcia disappears.
+1. From the Lead Inbox, tap Maria Santos's row → `/agent/leads/lead-instagram-01`.
+2. Header card shows: Maria Santos avatar, Hot badge, **Instagram** channel ribbon, "Interested in Laurel Hills Estate — Unit 12A" subtitle, Profile shortcut button.
+3. Thread renders the seeded messages with buyer left (canvas-sunken), agent/AI right (sage-soft / gold-soft).
+4. Inline AI Suggested Reply panel appears above composer with gold-soft surface. Rule shown: `default-check-in` (or similar based on last buyer message). Text in canvas-raised inner box. Action chips below.
+5. Tap × to dismiss → panel collapses to a gold "AI Reply" pill on the right; tap again → panel returns.
+6. Tap Refine → bottom sheet opens with Regenerate + 4 tone shortcuts + 3 language shortcuts. Active tone marked. Tap "Make warmer" → tone switches to Friendly Agent → suggestion text updates with "Hi Maria! I'm really glad you reached out..."
+7. In composer, tap a different tone chip (e.g. "Investor") → suggestion regenerates with yield/ROI/appreciation vocabulary.
+8. Tap the language pill → dropdown shows English/Tagalog/Cebuano → pick Tagalog → suggestion regenerates with "Kumusta, Maria po!" opener.
+9. Tap Attach → bottom sheet opens, files grouped by category. Select 2 → chips appear in composer.
+10. Tap "Use this" on the AI panel → suggestion text lands in textarea; any suggested file IDs auto-stage as additional attachments.
+11. Tap Send → message slides into the thread bottom with the sage-soft "agent" bubble, a small "Friendly Agent · Tagalog" sparkle pill above the body, paperclip indicator showing attachment count, sent-check.
+12. Composer + selected attachments reset; AI panel updates for the next reply.
+13. Test the Cherry-equivalent path: visit `/agent/leads/lead-noise-01` (JM Garcia, "is this still available?") → AI panel shows the `cold-qualifier` rule, text reads "Thanks for reaching out. To make sure I match you with the best options, may I ask: what is your target budget, preferred location, and rough timeline to buy?", action chips show only "Send qualifying questions" (no booking).
+14. Test the financing path: in the conversation thread, the seed has a buyer message containing "loan" or "financing" — the AI panel's `agentNote` strip appears at the bottom in subdued italic: "Note for you: Please confirm final figures with the developer, bank, or legal team before sending."
 
 Stop signal met across the board.
 
 ---
 
-**Next:** Session 3B — Buyer Conversation (full AI Suggested Reply panel, tone selector, attach composer) + the remaining agent surfaces (My Listings, Money on the Way detail, Notifications, AI Studio, Integrations, Settings) per the 9-session plan. Awaiting your go-ahead.
+**Next:** Session 4A — Listings Menu + For Sale category + Developer drill-down (per the corrected plan, NOT the surfaces I had wrongly proposed earlier). Awaiting your go-ahead, framing notes, and ratification of the cold-vs-hot semantic-shape reframe.

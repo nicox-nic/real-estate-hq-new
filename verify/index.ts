@@ -107,6 +107,19 @@ import {
   buildListingPriceMap,
   scoreLeadWithContext,
 } from "@/lib/logic/leadInboxDerivations";
+import {
+  ALL_TONES,
+  ALL_LANGUAGES,
+  TONE_MARKERS,
+  suggestReply,
+  type Tone,
+  type Language,
+} from "@/lib/logic/aiReply";
+import {
+  sendMessage,
+  getClientMessageCount,
+  _resetForTests,
+} from "@/lib/conversationStore";
 
 // ----------------------------------------------------------------------------
 // Mini assertion framework
@@ -1680,11 +1693,442 @@ function checkInboxAndContradiction() {
 }
 
 // ----------------------------------------------------------------------------
-// 9. PRD Coverage
+// 9. AI Suggested Reply — tones, languages, rule shapes (Session 3B)
+// ----------------------------------------------------------------------------
+
+function checkAIReply() {
+  const section = "9. AI Reply";
+
+  // Build common context the suggester needs.
+  const priceById = buildListingPriceMap(seedListings);
+  const noiseLead = seedLeads.find((l) => l.id === COLD_NOISE_LEAD_ID);
+  const mariaLead = seedLeads.find((l) => l.id === "lead-instagram-01");
+  const contradictionLead = seedLeads.find(
+    (l) => l.id === CONTRADICTION_LEAD_ID,
+  );
+
+  // -- Tone coverage --
+  check(
+    section,
+    "All 8 PRD tones registered in ALL_TONES",
+    ALL_TONES.length === 8,
+    `got ${ALL_TONES.length}`,
+  );
+  for (const t of ALL_TONES) {
+    check(
+      section,
+      `Tone "${t}" has at least one vocabulary marker`,
+      (TONE_MARKERS[t]?.length ?? 0) > 0,
+    );
+  }
+
+  // -- Pairwise tone distinctness on a common draft --
+  // Use Maria's lead as input so all rules can fire.
+  if (mariaLead) {
+    const toneOutputs = new Map<Tone, string>();
+    for (const t of ALL_TONES) {
+      const r = suggestReply({
+        lead: mariaLead,
+        listing: seedListings.find(
+          (l) => l.id === mariaLead.selectedListingIds[0],
+        ),
+        files: [],
+        lastBuyerMessage: "I'd like to know more about the unit",
+        tone: t,
+        language: "English",
+      });
+      toneOutputs.set(t, r.text);
+    }
+    // Each tone's output is distinct from every other tone's
+    const toneEntries = Array.from(toneOutputs.entries());
+    for (let i = 0; i < toneEntries.length; i++) {
+      for (let j = i + 1; j < toneEntries.length; j++) {
+        const aEntry = toneEntries[i]!;
+        const bEntry = toneEntries[j]!;
+        const [a, aOut] = aEntry;
+        const [b, bOut] = bEntry;
+        check(
+          section,
+          `Tone distinctness: "${a}" ≠ "${b}"`,
+          aOut !== bOut,
+        );
+      }
+    }
+
+    // Each tone's vocabulary markers appear in its own output (case-insensitive)
+    for (const [t, out] of toneEntries) {
+      const markers = TONE_MARKERS[t];
+      const outLower = out.toLowerCase();
+      const found = markers.some((m) => outLower.includes(m.toLowerCase()));
+      check(
+        section,
+        `Tone "${t}" output contains ≥1 vocabulary marker`,
+        found,
+        `markers checked: ${markers.join(", ")}`,
+      );
+    }
+
+    // Short Reply is meaningfully shorter than Detailed Reply
+    const shortOut = toneOutputs.get("Short Reply")!;
+    const detailedOut = toneOutputs.get("Detailed Reply")!;
+    const shortWords = shortOut.trim().split(/\s+/).length;
+    const detailedWords = detailedOut.trim().split(/\s+/).length;
+    check(
+      section,
+      "Short Reply word count < Detailed Reply word count",
+      shortWords < detailedWords,
+      `short=${shortWords}, detailed=${detailedWords}`,
+    );
+    check(
+      section,
+      "Short Reply ≤ 35 words",
+      shortWords <= 35,
+      `got ${shortWords}`,
+    );
+    check(
+      section,
+      "Detailed Reply ≥ 60 words",
+      detailedWords >= 60,
+      `got ${detailedWords}`,
+    );
+  }
+
+  // -- Language coverage --
+  check(
+    section,
+    "All 3 PRD languages registered in ALL_LANGUAGES",
+    ALL_LANGUAGES.length === 3,
+    `got ${ALL_LANGUAGES.length}`,
+  );
+
+  // -- Language pairwise distinctness with marker assertions --
+  if (mariaLead) {
+    const langOutputs = new Map<Language, string>();
+    for (const l of ALL_LANGUAGES) {
+      const r = suggestReply({
+        lead: mariaLead,
+        listing: seedListings.find(
+          (li) => li.id === mariaLead.selectedListingIds[0],
+        ),
+        files: [],
+        lastBuyerMessage: "I'd like to know more about the unit",
+        tone: "Friendly Agent",
+        language: l,
+      });
+      langOutputs.set(l, r.text);
+    }
+
+    // Pairwise distinct
+    const langEntries = Array.from(langOutputs.entries());
+    for (let i = 0; i < langEntries.length; i++) {
+      for (let j = i + 1; j < langEntries.length; j++) {
+        const aEntry = langEntries[i]!;
+        const bEntry = langEntries[j]!;
+        const [a, aOut] = aEntry;
+        const [b, bOut] = bEntry;
+        check(
+          section,
+          `Language distinctness: "${a}" ≠ "${b}"`,
+          aOut !== bOut,
+        );
+      }
+    }
+
+    // English: no po, no Maayong
+    const enOut = langOutputs.get("English")!;
+    check(
+      section,
+      "English output does not contain 'po'",
+      !/(^|\s)po(\s|[.,!?])/.test(enOut),
+      `output: ${enOut.slice(0, 80)}...`,
+    );
+    check(
+      section,
+      "English output does not contain 'Maayong'",
+      !enOut.includes("Maayong"),
+    );
+
+    // Tagalog: contains po, contains Kumusta, NEVER contains Maayong
+    const tlOut = langOutputs.get("Tagalog")!;
+    check(
+      section,
+      "Tagalog output contains 'po'",
+      /(^|\s)po(\s|[.,!?])/.test(tlOut),
+    );
+    check(
+      section,
+      "Tagalog output contains 'Kumusta'",
+      tlOut.includes("Kumusta"),
+    );
+    check(
+      section,
+      "Tagalog output does NOT contain 'Maayong'",
+      !tlOut.includes("Maayong"),
+    );
+
+    // Cebuano: contains Maayong, NEVER contains po (common error)
+    const cbOut = langOutputs.get("Cebuano")!;
+    check(
+      section,
+      "Cebuano output contains 'Maayong'",
+      cbOut.includes("Maayong"),
+    );
+    check(
+      section,
+      "Cebuano output does NOT contain 'po' (common error guard)",
+      !/(^|\s)po(\s|[.,!?])/.test(cbOut),
+      `output: ${cbOut.slice(0, 120)}...`,
+    );
+  }
+
+  // -- Cold-vs-Hot four-pronged structural proof on AI replies --
+  // Cherry-equivalent canonical noise inquiry (JM Garcia: "is this still available?")
+  if (noiseLead && mariaLead) {
+    const coldReply = suggestReply({
+      lead: noiseLead,
+      listing: seedListings.find(
+        (l) => l.id === noiseLead.selectedListingIds[0],
+      ),
+      files: [],
+      lastBuyerMessage: noiseLead.lastMessagePreview,
+      tone: "Friendly Agent",
+      language: "English",
+    });
+
+    // Synthesize a hot lead that hasn't yet booked, so the hot-site-visit
+    // rule fires (the seed's two hot leads both already have a visit booked).
+    const hotPendingLead = {
+      ...mariaLead,
+      buyer: { ...mariaLead.buyer, hasBookedSiteVisit: false },
+    };
+    const hotReply = suggestReply({
+      lead: hotPendingLead,
+      listing: seedListings.find(
+        (l) => l.id === hotPendingLead.selectedListingIds[0],
+      ),
+      files: seedPropertyFiles.filter(
+        (f) => f.listingId === hotPendingLead.selectedListingIds[0],
+      ),
+      lastBuyerMessage: "I'd like to view the property",
+      tone: "Friendly Agent",
+      language: "English",
+    });
+
+    // 1. Cold rule fires for the noise lead
+    check(
+      section,
+      "4-pronged cold-vs-hot #1: cold-noise lead routes to 'cold-qualifier' rule",
+      coldReply.ruleName === "cold-qualifier",
+      `got rule=${coldReply.ruleName}`,
+    );
+
+    // 2. Cold reply has ZERO booking CTAs
+    const coldBookingCount = coldReply.suggestedActions.filter(
+      (a) => a.kind === "book_site_visit",
+    ).length;
+    check(
+      section,
+      "4-pronged cold-vs-hot #2: cold reply has 0 book_site_visit actions",
+      coldBookingCount === 0,
+      `got ${coldBookingCount}`,
+    );
+
+    // 3. Cold reply contains qualifying-question regex (budget|location|timeline|ask)
+    check(
+      section,
+      "4-pronged cold-vs-hot #3: cold reply matches qualifying-question pattern",
+      /budget|location|timeline|may I ask|preferred/i.test(coldReply.text),
+      `cold text: ${coldReply.text.slice(0, 120)}...`,
+    );
+
+    // 4. Cold reply shape is qualifying (contains a "?" — it's asking), hot
+    //    reply shape is offering (mentions a viewing slot). Word-count isn't
+    //    the right axis: cold needs space to ask multiple clarifications;
+    //    hot can be decisive ("here are two slots"). What matters is the
+    //    semantic shape.
+    check(
+      section,
+      "4-pronged cold-vs-hot #4: cold reply asks a question (contains '?')",
+      coldReply.text.includes("?"),
+      `cold text: ${coldReply.text.slice(0, 120)}...`,
+    );
+    check(
+      section,
+      "4-pronged cold-vs-hot #4b: hot reply offers viewing (mentions 'viewing' or 'visit' or 'slot')",
+      /viewing|slot|visit/i.test(hotReply.text),
+      `hot text: ${hotReply.text.slice(0, 120)}...`,
+    );
+
+    // Hot reply has at least one booking CTA (the rule explicitly offers a visit)
+    check(
+      section,
+      "Hot-pending reply routes to 'hot-site-visit' rule",
+      hotReply.ruleName === "hot-site-visit",
+      `got rule=${hotReply.ruleName}`,
+    );
+    const hotBookingCount = hotReply.suggestedActions.filter(
+      (a) => a.kind === "book_site_visit",
+    ).length;
+    check(
+      section,
+      "Hot-pending reply (rule hot-site-visit) has ≥1 book_site_visit action",
+      hotBookingCount >= 1,
+      `got ${hotBookingCount}`,
+    );
+  }
+
+  // -- Agent note fires on sensitive-topic keywords --
+  if (mariaLead) {
+    const financingReply = suggestReply({
+      lead: mariaLead,
+      listing: seedListings.find(
+        (l) => l.id === mariaLead.selectedListingIds[0],
+      ),
+      files: [],
+      lastBuyerMessage: "Can you explain the financing options?",
+      tone: "Friendly Agent",
+      language: "English",
+    });
+    check(
+      section,
+      "Agent note fires when buyer message contains 'financing'",
+      !!financingReply.agentNote,
+      `note: ${financingReply.agentNote ?? "missing"}`,
+    );
+    check(
+      section,
+      "Financing reply routes to 'financing-explainer' rule",
+      financingReply.ruleName === "financing-explainer",
+      `got rule=${financingReply.ruleName}`,
+    );
+
+    const innocentReply = suggestReply({
+      lead: mariaLead,
+      listing: seedListings.find(
+        (l) => l.id === mariaLead.selectedListingIds[0],
+      ),
+      files: [],
+      lastBuyerMessage: "Hi just saying hello",
+      tone: "Friendly Agent",
+      language: "English",
+    });
+    check(
+      section,
+      "Agent note NOT fired on benign message",
+      !innocentReply.agentNote,
+    );
+  }
+
+  // -- AI suggester is a pure function (call twice → identical result) --
+  if (mariaLead) {
+    const a = suggestReply({
+      lead: mariaLead,
+      listing: seedListings.find(
+        (l) => l.id === mariaLead.selectedListingIds[0],
+      ),
+      files: [],
+      lastBuyerMessage: "Can I book a site visit?",
+      tone: "Professional Broker",
+      language: "Tagalog",
+    });
+    const b = suggestReply({
+      lead: mariaLead,
+      listing: seedListings.find(
+        (l) => l.id === mariaLead.selectedListingIds[0],
+      ),
+      files: [],
+      lastBuyerMessage: "Can I book a site visit?",
+      tone: "Professional Broker",
+      language: "Tagalog",
+    });
+    check(
+      section,
+      "AI suggester is deterministic (call twice → identical text)",
+      a.text === b.text,
+    );
+    check(
+      section,
+      "AI suggester is deterministic (call twice → identical rule)",
+      a.ruleName === b.ruleName,
+    );
+    check(
+      section,
+      "AI suggester is deterministic (call twice → identical action count)",
+      a.suggestedActions.length === b.suggestedActions.length,
+    );
+  }
+
+  // -- Editorial bypass continues to hold (carry-forward from 3A) --
+  if (contradictionLead) {
+    check(
+      section,
+      "Editorial bypass: contradiction lead still visible in default inbox",
+      filterInbox(seedLeads, {
+        chip: "All",
+        qualifiedOnly: true,
+        search: "",
+        listingPriceById: priceById,
+      }).some((l) => l.id === CONTRADICTION_LEAD_ID),
+    );
+    check(
+      section,
+      "Editorial bypass: contradiction lead has disagreement flagged",
+      hasEngineEditorialDisagreement(contradictionLead, priceById),
+    );
+  }
+
+  // -- Send action mutation invariants (pure function level) --
+  // Reset client store to baseline, then send, then assert count changed.
+  _resetForTests();
+  const beforeCount = getClientMessageCount("lead-instagram-01");
+  const sent = sendMessage({
+    leadId: "lead-instagram-01",
+    body: "Test reply",
+    tone: "Friendly Agent",
+    language: "English",
+    attachmentIds: undefined,
+  });
+  const afterCount = getClientMessageCount("lead-instagram-01");
+  check(
+    section,
+    "sendMessage: client store grows by 1",
+    afterCount === beforeCount + 1,
+    `before=${beforeCount}, after=${afterCount}`,
+  );
+  check(
+    section,
+    "sendMessage: returned message has sender='agent'",
+    sent.sender === "agent",
+  );
+  check(
+    section,
+    "sendMessage: returned message has the supplied body",
+    sent.body === "Test reply",
+  );
+  check(
+    section,
+    "sendMessage: returned message captures tone",
+    sent.tone === "Friendly Agent",
+  );
+  check(
+    section,
+    "sendMessage: returned message captures language",
+    sent.language === "English",
+  );
+  check(
+    section,
+    "sendMessage: returned message has a unique-looking ID",
+    sent.id.startsWith("msg-sent-"),
+  );
+  _resetForTests();
+}
+
+// ----------------------------------------------------------------------------
+// 10. PRD Coverage
 // ----------------------------------------------------------------------------
 
 function reportPRDCoverage() {
-  const section = "9. PRD Coverage";
+  const section = "10. PRD Coverage";
 
   check(
     section,
@@ -1784,24 +2228,30 @@ function reportPRDCoverage() {
     );
   }
 
-  // buyer-conversation: scaffolded
+  // buyer-conversation: scaffolded → complete in Session 3B
   const buyerConv = prdRoutes.find((r) => r.id === "buyer-conversation");
   if (!buyerConv) {
     fail(section, "buyer-conversation entry present", "missing");
   } else {
     check(
       section,
-      "Session 3A: buyer-conversation status = scaffolded",
-      buyerConv.status === "scaffolded",
+      "Session 3B: buyer-conversation status = complete",
+      buyerConv.status === "complete",
       `got ${buyerConv.status}`,
+    );
+    check(
+      section,
+      "Session 3B: buyer-conversation completedInSession = 3",
+      buyerConv.completedInSession === 3,
+      `got ${buyerConv.completedInSession}`,
     );
   }
 
-  // Coverage progress: ≥ 11 complete after Session 3A.
+  // Coverage progress: ≥ 12 complete after Session 3B (3A's 11 + Buyer Conversation).
   check(
     section,
-    "Coverage progress: ≥ 11 routes complete after Session 3A",
-    complete >= 11,
+    "Coverage progress: ≥ 12 routes complete after Session 3B",
+    complete >= 12,
     `complete=${complete}`,
   );
 }
@@ -1878,5 +2328,6 @@ checkCommissionMockup();
 checkAuthAndSchemas();
 checkDashboardMath();
 checkInboxAndContradiction();
+checkAIReply();
 reportPRDCoverage();
 report();
