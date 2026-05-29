@@ -5,7 +5,7 @@ import Link from "next/link";
 import { ArrowLeft, Building2, User, ChevronRight } from "lucide-react";
 import { AppShell } from "@/components/layout/AppShell";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
-import { StatusBadge } from "@/components/ui/StatusBadge";
+import { VerificationBadge } from "@/components/listings/VerificationBadge";
 import { cn } from "@/lib/cn";
 import {
   DEMO_AGENT_ID,
@@ -145,9 +145,12 @@ export default function ForSaleCategoryPage() {
           <Card>
             <CardHeader>
               <CardTitle>Private offerings</CardTitle>
-              <span className="text-xs text-ink-subtle">
-                {privateOfferings.length} listings
-              </span>
+              <Link
+                href={`/${roleSlug}/listings/for-sale/private`}
+                className="text-xs font-medium text-gold-deep hover:text-ink shrink-0"
+              >
+                See all →
+              </Link>
             </CardHeader>
             {privateOfferings.length === 0 ? (
               <p className="text-sm text-ink-muted py-6 text-center">
@@ -155,7 +158,7 @@ export default function ForSaleCategoryPage() {
               </p>
             ) : (
               <ul className="space-y-2">
-                {privateOfferings.slice(0, 8).map((l) => (
+                {privateOfferings.slice(0, 6).map((l) => (
                   <li
                     key={l.id}
                     data-testid={`private-offering-${l.id}`}
@@ -170,19 +173,20 @@ export default function ForSaleCategoryPage() {
                           {l.title}
                         </div>
                         <div className="text-xs text-ink-muted truncate">
-                          {l.location} · {formatPHPCompact(l.price)} ·{" "}
-                          {l.ownership}
+                          {l.location} · {formatPHPCompact(l.price)}
                         </div>
                       </div>
-                      <StatusBadge variant="neutral">{l.ownership}</StatusBadge>
+                      {l.verificationStatus ? (
+                        <VerificationBadge status={l.verificationStatus} />
+                      ) : null}
                     </div>
                   </li>
                 ))}
               </ul>
             )}
             <p className="text-[11px] text-ink-subtle pt-3 italic">
-              Private Offerings full surface (verification status, negotiability
-              details, owner contact) ships in Session 4B.
+              {privateOfferings.length} total private offerings — tap "See all"
+              for filters and full surface.
             </p>
           </Card>
         )}

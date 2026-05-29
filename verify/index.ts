@@ -134,6 +134,26 @@ import {
 } from "@/lib/logic/listingsDerivations";
 import { primaryActionFor } from "@/components/listings/ListingActionRow";
 import { roleFromPathname } from "@/lib/useCurrentRole";
+import {
+  verificationVisualFor,
+  ALL_VERIFICATION_STATUSES,
+  type VerificationStatus,
+} from "@/lib/logic/verificationVisual";
+import {
+  extractQuery,
+  applyQuery,
+  searchListings,
+  transparencyChipsFor,
+  SEARCH_RULES,
+  LOCATION_KEYWORDS,
+} from "@/lib/logic/aiListingSearch";
+import {
+  listingsForUser,
+  applyActiveFilter,
+  applyTransactionTypeFilter,
+  myListingsHeadingFor,
+  ACTIVE_FILTERS,
+} from "@/lib/logic/myListingsDerivations";
 
 // ----------------------------------------------------------------------------
 // Mini assertion framework
@@ -2443,11 +2463,558 @@ function checkListingsSpine() {
 }
 
 // ----------------------------------------------------------------------------
-// 11. PRD Coverage
+// 12. Listings 4B — Verification visual, Private Offerings, My Listings, AI Search
+// ----------------------------------------------------------------------------
+
+function checkListings4B() {
+  const section = "12. Listings 4B";
+
+  // -- Verification visual (5th concentration point) --
+  check(
+    section,
+    "ALL_VERIFICATION_STATUSES has the 3 PRD states",
+    ALL_VERIFICATION_STATUSES.length === 3,
+    `got ${ALL_VERIFICATION_STATUSES.length}`,
+  );
+
+  for (const s of ALL_VERIFICATION_STATUSES) {
+    const v = verificationVisualFor(s);
+    check(
+      section,
+      `verificationVisualFor("${s}") returns non-empty label`,
+      v.label.length > 0,
+    );
+    check(
+      section,
+      `verificationVisualFor("${s}") returns badge class string`,
+      typeof v.badgeClass === "string" && v.badgeClass.length > 0,
+    );
+    check(
+      section,
+      `verificationVisualFor("${s}") returns semantic identifier`,
+      typeof v.semantic === "string",
+    );
+  }
+
+  // The three visuals are pairwise distinct (label and semantic)
+  const visuals = ALL_VERIFICATION_STATUSES.map(verificationVisualFor);
+  const labels = visuals.map((v) => v.label);
+  const semantics = visuals.map((v) => v.semantic);
+  check(
+    section,
+    "Verification labels pairwise distinct (Verified vs Pending vs Unverified)",
+    new Set(labels).size === 3,
+  );
+  check(
+    section,
+    "Verification semantic IDs pairwise distinct",
+    new Set(semantics).size === 3,
+  );
+  // Semantic IDs are stable strings
+  check(
+    section,
+    "verificationVisualFor('Verified').semantic === 'verified'",
+    verificationVisualFor("Verified").semantic === "verified",
+  );
+  check(
+    section,
+    "verificationVisualFor('Pending').semantic === 'pending'",
+    verificationVisualFor("Pending").semantic === "pending",
+  );
+  check(
+    section,
+    "verificationVisualFor('Unverified').semantic === 'unverified'",
+    verificationVisualFor("Unverified").semantic === "unverified",
+  );
+
+  // -- Private Offerings seed: 8-10 with 50/30/20 ratio --
+  const forSalePrivate = seedListings.filter(
+    (l) =>
+      l.transactionType === "For Sale" && l.ownership !== "Developer Listing",
+  );
+  check(
+    section,
+    "Private For-Sale offerings: ≥8 (framing minimum)",
+    forSalePrivate.length >= 8,
+    `got ${forSalePrivate.length}`,
+  );
+
+  const verifiedCount = forSalePrivate.filter(
+    (l) => l.verificationStatus === "Verified",
+  ).length;
+  const pendingCount = forSalePrivate.filter(
+    (l) => l.verificationStatus === "Pending",
+  ).length;
+  const unverifiedCount = forSalePrivate.filter(
+    (l) => l.verificationStatus === "Unverified",
+  ).length;
+
+  check(
+    section,
+    "Private offerings: ≥1 Verified seeded",
+    verifiedCount >= 1,
+    `got ${verifiedCount}`,
+  );
+  check(
+    section,
+    "Private offerings: ≥1 Pending seeded",
+    pendingCount >= 1,
+    `got ${pendingCount}`,
+  );
+  check(
+    section,
+    "Private offerings: ≥1 Unverified seeded",
+    unverifiedCount >= 1,
+    `got ${unverifiedCount}`,
+  );
+  // Verified dominates (per framing's 50/30/20 ratio guidance)
+  check(
+    section,
+    "Private offerings: Verified > Pending count (ratio sanity)",
+    verifiedCount > pendingCount,
+    `verified=${verifiedCount}, pending=${pendingCount}`,
+  );
+  check(
+    section,
+    "Private offerings: Pending > Unverified count (ratio sanity)",
+    pendingCount >= unverifiedCount,
+    `pending=${pendingCount}, unverified=${unverifiedCount}`,
+  );
+
+  // -- Seeded-prop anchor: listing-private-banawa-townhouse --
+  const banawaAnchor = seedListings.find(
+    (l) => l.id === "listing-private-banawa-townhouse",
+  );
+  check(
+    section,
+    "Anchor: listing-private-banawa-townhouse exists",
+    !!banawaAnchor,
+  );
+  if (banawaAnchor) {
+    check(
+      section,
+      "Anchor: banawa-townhouse is For Sale + Personal Listing",
+      banawaAnchor.transactionType === "For Sale" &&
+        banawaAnchor.ownership === "Personal Listing",
+    );
+    check(
+      section,
+      "Anchor: banawa-townhouse is Verified",
+      banawaAnchor.verificationStatus === "Verified",
+    );
+    check(
+      section,
+      "Anchor: banawa-townhouse owned by agent-001 (Alyssa)",
+      banawaAnchor.ownerAgentId === "agent-001",
+    );
+    check(
+      section,
+      "Anchor: banawa-townhouse price is ₱9.8M",
+      banawaAnchor.price === 9_800_000,
+    );
+    check(
+      section,
+      "Anchor: banawa-townhouse located in Banawa, Cebu City",
+      banawaAnchor.location.includes("Banawa"),
+    );
+    check(
+      section,
+      "Anchor: banawa-townhouse assigned to agent-001 (drives My Listings density)",
+      (banawaAnchor.assignedAgentIds ?? []).includes("agent-001"),
+    );
+  }
+
+  // -- AI Listing Search: pure functional behavior --
+  // Cross-axis structured queries → expected matches.
+  const allFor = (l: typeof seedListings) => l;
+  const allListings = allFor(seedListings);
+
+  // Location-only: "BGC" → only BGC listings
+  {
+    const r = searchListings("BGC", allListings);
+    check(
+      section,
+      "Search 'BGC' returns ≥1 match",
+      r.matches.length >= 1,
+      `got ${r.matches.length}`,
+    );
+    check(
+      section,
+      "Search 'BGC' returns only listings with 'BGC' in location",
+      r.matches.every((l) => /bgc/i.test(l.location)),
+    );
+    // Transparency chips contain a "location" chip with label "BGC"
+    check(
+      section,
+      "Search 'BGC' produces a location chip with label 'BGC'",
+      r.chips.some((c) => c.kind === "location" && c.label === "BGC"),
+    );
+  }
+
+  // Price ceiling: "under 10M"
+  {
+    const r = searchListings("under 10M", allListings);
+    check(
+      section,
+      "Search 'under 10M' returns ≥1 match",
+      r.matches.length >= 1,
+    );
+    check(
+      section,
+      "Search 'under 10M' returns only listings with price ≤ 10_000_000",
+      r.matches.every((l) => l.price <= 10_000_000),
+    );
+    check(
+      section,
+      "Search 'under 10M' produces a maxPrice chip",
+      r.chips.some((c) => c.kind === "maxPrice"),
+    );
+  }
+
+  // Bedrooms: "2BR"
+  {
+    const r = searchListings("2BR", allListings);
+    check(section, "Search '2BR' returns ≥1 match", r.matches.length >= 1);
+    // Per the engine: listings without parseable bedrooms aren't excluded —
+    // those with parseable bedrooms must equal 2.
+    check(
+      section,
+      "Search '2BR' returns only listings whose parseable bedroom count is 2 (others permissive)",
+      r.matches.every((l) => {
+        const m = `${l.title} ${l.propertyType}`.match(
+          /(\d+)\s?(?:br|bedroom|bed)/i,
+        );
+        if (!m || !m[1]) return true; // permissive — no parseable bedrooms
+        return parseInt(m[1], 10) === 2;
+      }),
+    );
+    check(
+      section,
+      "Search '2BR' produces a bedrooms chip with label '2BR'",
+      r.chips.some((c) => c.kind === "bedrooms" && c.label === "2BR"),
+    );
+  }
+
+  // Transaction type: "foreclosure properties in Cebu"
+  {
+    const r = searchListings("foreclosure properties in Cebu", allListings);
+    check(
+      section,
+      "Search 'foreclosure properties in Cebu' returns only Foreclosure listings",
+      r.matches.every((l) => l.transactionType === "Foreclosure"),
+    );
+    check(
+      section,
+      "Search 'foreclosure properties in Cebu' returns only Cebu listings",
+      r.matches.every((l) => /cebu/i.test(l.location)),
+    );
+    check(
+      section,
+      "Search 'foreclosure ...' produces a transactionType chip 'Foreclosure'",
+      r.chips.some(
+        (c) => c.kind === "transactionType" && c.label === "Foreclosure",
+      ),
+    );
+  }
+
+  // Property type + price ceiling: "Show me condos in BGC under 20M"
+  {
+    const r = searchListings("Show me condos in BGC under 20M", allListings);
+    check(
+      section,
+      "Composite search returns only Condos",
+      r.matches.every((l) => l.propertyType === "Condo"),
+    );
+    check(
+      section,
+      "Composite search returns only BGC location",
+      r.matches.every((l) => /bgc/i.test(l.location)),
+    );
+    check(
+      section,
+      "Composite search returns only price ≤ 20M",
+      r.matches.every((l) => l.price <= 20_000_000),
+    );
+    // Transparency chips for all three axes
+    check(
+      section,
+      "Composite search transparency: 3 chips (propertyType + location + maxPrice)",
+      r.chips.filter(
+        (c) =>
+          c.kind === "propertyType" ||
+          c.kind === "location" ||
+          c.kind === "maxPrice",
+      ).length === 3,
+    );
+  }
+
+  // Commission filter: "at least 3% commission"
+  {
+    const r = searchListings("at least 3% commission", allListings);
+    check(
+      section,
+      "Search 'at least 3% commission' returns only listings with commission ≥ 0.03",
+      r.matches.every((l) => l.commissionRate >= 0.03),
+    );
+    check(
+      section,
+      "Search '... commission' produces a minCommission chip",
+      r.chips.some((c) => c.kind === "minCommission"),
+    );
+  }
+
+  // Anchor query: the demo-narrative search
+  {
+    const r = searchListings("2BR condo in BGC under 20M", allListings);
+    check(
+      section,
+      "Anchor query '2BR condo in BGC under 20M' returns exactly 1 match",
+      r.matches.length === 1,
+      `got ${r.matches.length}`,
+    );
+    check(
+      section,
+      "Anchor query match is listing-private-bgc-condo",
+      r.matches[0]?.id === "listing-private-bgc-condo",
+    );
+    // 4 transparency chips: 2BR + Condo + BGC + ≤₱20M
+    check(
+      section,
+      "Anchor query produces exactly 4 transparency chips",
+      r.chips.length === 4,
+      `got ${r.chips.length} chips: ${r.chips.map((c) => c.label).join(", ")}`,
+    );
+  }
+
+  // Determinism: same input → same result
+  {
+    const a = searchListings("condos in Mactan", allListings);
+    const b = searchListings("condos in Mactan", allListings);
+    check(
+      section,
+      "Search is deterministic: same input → same match count",
+      a.matches.length === b.matches.length,
+    );
+    check(
+      section,
+      "Search is deterministic: same match IDs in same order",
+      a.matches.every((m, i) => m.id === b.matches[i]?.id),
+    );
+  }
+
+  // -- extractQuery primitives --
+  {
+    const q = extractQuery("2BR condo in BGC under 20M");
+    check(
+      section,
+      "extractQuery: bedrooms = 2",
+      q.bedrooms === 2,
+      `got ${q.bedrooms}`,
+    );
+    check(
+      section,
+      "extractQuery: propertyType = 'Condo'",
+      q.propertyType === "Condo",
+      `got ${q.propertyType}`,
+    );
+    check(
+      section,
+      "extractQuery: location = 'BGC'",
+      q.location === "BGC",
+      `got ${q.location}`,
+    );
+    check(
+      section,
+      "extractQuery: maxPrice = 20_000_000",
+      q.maxPrice === 20_000_000,
+      `got ${q.maxPrice}`,
+    );
+  }
+
+  // applyQuery is a pure filter consistent with searchListings
+  {
+    const q = extractQuery("BGC");
+    const filtered = applyQuery(q, allListings);
+    const viaSearch = searchListings("BGC", allListings);
+    check(
+      section,
+      "applyQuery + extractQuery agrees with searchListings",
+      filtered.length === viaSearch.matches.length,
+    );
+  }
+
+  // SEARCH_RULES table totality
+  check(
+    section,
+    "SEARCH_RULES has ≥10 declarative rules (transparency contract)",
+    Object.keys(SEARCH_RULES).length >= 10,
+    `got ${Object.keys(SEARCH_RULES).length}`,
+  );
+  check(
+    section,
+    "LOCATION_KEYWORDS includes BGC, Cebu, Makati, Manila, Mactan",
+    ["BGC", "Cebu", "Makati", "Manila", "Mactan"].every((l) =>
+      (LOCATION_KEYWORDS as readonly string[]).includes(l),
+    ),
+  );
+
+  // -- transparencyChipsFor: matches the actually applied filters --
+  {
+    const q = extractQuery("2BR condo BGC");
+    const chips = transparencyChipsFor(q);
+    const kinds = new Set(chips.map((c) => c.kind));
+    check(
+      section,
+      "Transparency chips match extracted fields: bedrooms + propertyType + location all present",
+      kinds.has("bedrooms") && kinds.has("propertyType") && kinds.has("location"),
+    );
+    check(
+      section,
+      "Transparency chips do NOT include filters not extracted (no maxPrice chip when none specified)",
+      !kinds.has("maxPrice") && !kinds.has("minPrice"),
+    );
+  }
+
+  // -- My Listings derivations --
+  const alyssa = seedUsers.find((u) => u.id === DEMO_AGENT_ID)!;
+  const alyssaListings = listingsForUser(alyssa, seedListings, seedUsers);
+  check(
+    section,
+    "Demo agent (Alyssa, agent-001) has ≥8 listings in My Listings (framing minimum)",
+    alyssaListings.length >= 8,
+    `got ${alyssaListings.length}`,
+  );
+  // Every listing returned is either owned-by-Alyssa or assigned-to-Alyssa
+  check(
+    section,
+    "Alyssa's My Listings: every result is either owned or assigned to her",
+    alyssaListings.every(
+      (l) =>
+        l.ownerAgentId === alyssa.id ||
+        (l.assignedAgentIds ?? []).includes(alyssa.id),
+    ),
+  );
+
+  // Demo broker (Maria) sees broker-owned + her agents' owned
+  const maria = seedUsers.find((u) => u.id === DEMO_BROKER_ID)!;
+  const mariaListings = listingsForUser(maria, seedListings, seedUsers);
+  check(
+    section,
+    "Demo broker (Maria, broker-001) has ≥1 listing visible in My Listings",
+    mariaListings.length >= 1,
+    `got ${mariaListings.length}`,
+  );
+  const mariaAgentIds = new Set(
+    seedUsers
+      .filter((u) => u.parentId === maria.id && u.role === "Agent")
+      .map((u) => u.id),
+  );
+  check(
+    section,
+    "Maria's My Listings: every result is owned by her or by one of her agents",
+    mariaListings.every(
+      (l) =>
+        l.ownerBrokerId === maria.id ||
+        (l.ownerAgentId !== undefined && mariaAgentIds.has(l.ownerAgentId)),
+    ),
+  );
+
+  // Realtor: sees broker-owned by network + agent-owned by network
+  const alex = seedUsers.find((u) => u.id === DEMO_REALTOR_ID)!;
+  const alexListings = listingsForUser(alex, seedListings, seedUsers);
+  check(
+    section,
+    "Demo realtor (Alex, realtor-001) sees ≥ broker's count (network includes broker's scope)",
+    alexListings.length >= mariaListings.length,
+    `realtor=${alexListings.length}, broker=${mariaListings.length}`,
+  );
+
+  // -- ACTIVE_FILTERS triad --
+  check(
+    section,
+    "ACTIVE_FILTERS has All / Active / Archived",
+    ACTIVE_FILTERS.length === 3 &&
+      ACTIVE_FILTERS.includes("All") &&
+      ACTIVE_FILTERS.includes("Active") &&
+      ACTIVE_FILTERS.includes("Archived"),
+  );
+  // Active filter: only Available or Sold Out Soon
+  {
+    const all = listingsForUser(alyssa, seedListings, seedUsers);
+    const active = applyActiveFilter(all, "Active");
+    const archived = applyActiveFilter(all, "Archived");
+    check(
+      section,
+      "Active filter returns only Available or Sold Out Soon listings",
+      active.every(
+        (l) =>
+          l.availability === "Available" || l.availability === "Sold Out Soon",
+      ),
+    );
+    check(
+      section,
+      "Archived filter returns only Sold or Reserved listings",
+      archived.every(
+        (l) => l.availability === "Sold" || l.availability === "Reserved",
+      ),
+    );
+    check(
+      section,
+      "Active + Archived (mutually exclusive) sum ≤ All",
+      active.length + archived.length <= all.length,
+    );
+  }
+
+  // Transaction filter: passes through and is exclusive
+  {
+    const all = listingsForUser(alyssa, seedListings, seedUsers);
+    const forSale = applyTransactionTypeFilter(all, "For Sale");
+    check(
+      section,
+      "Transaction-type filter 'For Sale' returns only For Sale listings",
+      forSale.every((l) => l.transactionType === "For Sale"),
+    );
+    check(
+      section,
+      "Transaction-type filter 'All' is identity",
+      applyTransactionTypeFilter(all, "All").length === all.length,
+    );
+  }
+
+  // -- Per-role heading --
+  check(
+    section,
+    "Heading for Agent: 'My Listings'",
+    myListingsHeadingFor("Agent").title === "My Listings",
+  );
+  check(
+    section,
+    "Heading for Broker: 'Listings I've distributed'",
+    myListingsHeadingFor("Broker").title === "Listings I've distributed",
+  );
+  check(
+    section,
+    "Heading for Realtor: 'Listings across my network'",
+    myListingsHeadingFor("Realtor").title === "Listings across my network",
+  );
+  // Headings pairwise distinct
+  check(
+    section,
+    "Per-role headings pairwise distinct",
+    new Set([
+      myListingsHeadingFor("Agent").title,
+      myListingsHeadingFor("Broker").title,
+      myListingsHeadingFor("Realtor").title,
+    ]).size === 3,
+  );
+}
+
+// ----------------------------------------------------------------------------
+// 13. PRD Coverage
 // ----------------------------------------------------------------------------
 
 function reportPRDCoverage() {
-  const section = "11. PRD Coverage";
+  const section = "13. PRD Coverage";
 
   check(
     section,
@@ -2618,6 +3185,39 @@ function reportPRDCoverage() {
     complete >= 23,
     `complete=${complete}`,
   );
+
+  // Session 4B stop-signal: private-offerings (#19) + my-listings (#20).
+  // AI Listing Search is not a separate manifest entry — it's an enhancement
+  // mounted on the Listings Menu (#14) and My Listings (#20). Its presence is
+  // locked by Section 12's behavioral asserts on the search module.
+  const session4bRoutes = ["private-offerings", "my-listings"];
+  for (const id of session4bRoutes) {
+    const entry = prdRoutes.find((r) => r.id === id);
+    if (!entry) {
+      fail(section, `Session 4B route ${id} present in manifest`, "missing");
+      continue;
+    }
+    check(
+      section,
+      `Session 4B route "${id}" status = complete`,
+      entry.status === "complete",
+      `got ${entry.status}`,
+    );
+    check(
+      section,
+      `Session 4B route "${id}" completedInSession = 4`,
+      entry.completedInSession === 4,
+      `got ${entry.completedInSession}`,
+    );
+  }
+
+  // Coverage cannot regress: 23 (Session 4A) + 2 (Session 4B routes) = 25.
+  check(
+    section,
+    "Coverage progress: ≥ 25 routes complete after Session 4B",
+    complete >= 25,
+    `complete=${complete}`,
+  );
 }
 
 // ----------------------------------------------------------------------------
@@ -2694,5 +3294,6 @@ checkDashboardMath();
 checkInboxAndContradiction();
 checkAIReply();
 checkListingsSpine();
+checkListings4B();
 reportPRDCoverage();
 report();

@@ -446,23 +446,36 @@ export const prdRoutes: PRDRoute[] = [
   {
     id: "private-offerings",
     title: "Private Offerings",
-    route: "/agent/listings/private-offerings",
+    route: "/agent/listings/for-sale/private",
     expectedElements: [
-      "Verified-badge listings",
-      "Owner-direct, exclusive, broker-listed indicators",
+      "Verification status badges per card (Verified / Pending review / Unverified)",
+      "Verification filter chips (All / Verified / Pending / Unverified)",
+      "Owner-direct, exclusive, broker-listed ownership indicators",
+      "Seller info (owner name)",
+      "Engagement count",
+      "Role-aware action row per card",
     ],
-    status: "pending",
+    status: "complete",
+    completedInSession: 4,
+    notes:
+      "Session 4B. Read-side verification display ships now; verification workflow (broker approval flow for Unverified, document capture) ships in Session 9 polish. Mirrored under /broker/listings/for-sale/private and /realtor/listings/for-sale/private.",
   },
   {
     id: "my-listings",
     title: "My Listings",
-    route: "/agent/listings/mine",
+    route: "/agent/my-listings",
     expectedElements: [
-      "Personal listings I own",
-      "Add listing CTA",
-      "Status badges",
+      "Per-role heading (Agent: My Listings; Broker: Listings I've distributed; Realtor: Listings across my network)",
+      "All / Active / Archived filter chips",
+      "Transaction-type filter chips (per category)",
+      "AI search input at the top",
+      "Listing cards with availability + verification badge + engagement",
+      "Role-aware primary action per card",
     ],
-    status: "pending",
+    status: "complete",
+    completedInSession: 4,
+    notes:
+      "Session 4B. Per-role semantics: Agent sees owned + assigned; Broker sees own + agents' listings; Realtor sees network-wide. Mirrored under /broker/my-listings and /realtor/my-listings.",
   },
 
   // ----- Share / Site Visit / Deals (Session 5) -----

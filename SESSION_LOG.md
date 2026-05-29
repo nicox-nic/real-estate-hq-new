@@ -5,6 +5,105 @@ Newest sessions at top.
 
 ---
 
+## Session 4B — Private Offerings + My Listings + AI Listing Search
+**Date:** 2025-05-29
+**Branch:** main
+**Scope:** Private Offerings full surface (#19) with read-side verification badges + filter chips; My Listings (#20) with role-mirror; AI Listing Search natural-language filter mounted on Listings Menu + My Listings. Closes out the Listings module surface-completion phase.
+
+### What shipped
+
+- **`lib/logic/verificationVisual.ts`** — **fifth concentration point** confirmed. Pure mapping `verificationVisualFor(status)` → `{label, Icon, badgeClass, iconAccentClass, semantic}`. Three states, three visual treatments: Verified→sage-deep + ShieldCheck; Pending→gold-deep + Clock; Unverified→terracotta-deep + ShieldAlert. `ALL_VERIFICATION_STATUSES` exported for filter-chip iteration. Architecturally identical to `primaryActionFor` from 4A: pure helper exported separately so verify can lock the contract without React. **Cross-file invariant locked: no inline color literals for verification states outside this helper.**
+- **`components/listings/VerificationBadge.tsx`** — React badge component using the helper. Test-id includes the `data-verification-status` and `data-testid="verification-badge-{semantic}"` so verify can locate badges per listing.
+- **`lib/logic/aiListingSearch.ts`** — the deterministic rule-based search engine. No real LLM call. Components:
+  - `SEARCH_RULES` — declarative table of 14 rules (bedrooms, maxPriceM, minPriceM, minCommission, transaction types × 6, property types × 4). Each rule has a `description` field (transparency contract for the UI) and a `pattern` regex. Future expansion adds rules to the table.
+  - `LOCATION_KEYWORDS` — ordered list of PH locations (longest-first so "Cebu Business Park" wins over "Cebu"); standalone "Cebu" / "Manila" as last-resort fallbacks.
+  - `extractQuery(input)` → `ExtractedQuery` — pure structured extraction. Strips matched substrings sequentially so each rule "consumes" its territory.
+  - `applyQuery(q, listings)` — filters a Listing[] against the ExtractedQuery. Bedroom matching is **permissive** when a listing's bedrooms can't be parsed from text (don't exclude on ambiguity — the transparency chip still shows the filter).
+  - `transparencyChipsFor(q)` → `TransparencyChip[]` — exactly the chips for whatever was extracted. Mirrors the AI Reply panel's rule-name display from Session 3B.
+  - `searchListings(input, listings)` → `{query, matches, chips}` — one-shot convenience for UI.
+  - Stopword list expanded post-extraction (the, with, properties, listings, commission, near, etc.) so orphan structural words don't pollute freeText filters.
+- **`components/listings/AISearchInput.tsx`** — search bar component. Sparkles icon, gold-soft focus state, transparency chips row below input ("Filtering by: 2BR · Condo · BGC · ≤₱20M"), inline results card showing up to 6 matches with "+N more" overflow, empty-state with suggestion chips.
+- **`lib/logic/myListingsDerivations.ts`** — `listingsForUser(user, allListings, allUsers)` with per-role semantics:
+  - Agent: `ownerAgentId === me` OR `assignedAgentIds.includes(me)`
+  - Broker: `ownerBrokerId === me` OR `ownerAgentId` belongs to one of my agents
+  - Realtor: `ownerBrokerId` belongs to one of my brokers OR `ownerAgentId` belongs to one of my brokers' agents OR `assignedAgentIds` overlaps with my brokers' agents
+  - `applyActiveFilter` (All / Active / Archived where Active = Available + Sold Out Soon; Archived = Sold + Reserved)
+  - `applyTransactionTypeFilter` (one of 7 PRD categories + "All")
+  - `myListingsHeadingFor(role)` — per-role heading copy (Agent: "My Listings"; Broker: "Listings I've distributed"; Realtor: "Listings across my network")
+- **`app/agent/listings/for-sale/private/page.tsx`** — Private Offerings (#19). 10 private For-Sale offerings rendered with verification badges + ownership badges + owner names + engagement counts + role-aware action rows. 4 filter chips (All + 3 verification states). Footer note that the verification workflow ships in Session 9. Back link smart-routes: Agent → For Sale, Broker/Realtor → Listings Menu (because broker/realtor's `/listings/for-sale` doesn't exist as a route yet).
+- **`app/agent/my-listings/page.tsx`** — My Listings (#20). Per-role heading via `myListingsHeadingFor`. AISearchInput mounted at the top filtering scoped-to-user listings. All/Active/Archived chips + transaction-type chips. Listing cards with transaction-type badge + availability badge + verification badge (when applicable) + engagement count + role-aware action row.
+- **App routes added/touched:**
+  - `app/agent/listings/for-sale/private/page.tsx` (new) — Private Offerings full surface
+  - `app/agent/my-listings/page.tsx` (new) — My Listings
+  - `app/broker/listings/for-sale/private/page.tsx` (new role mirror)
+  - `app/realtor/listings/for-sale/private/page.tsx` (new role mirror)
+  - `app/broker/my-listings/page.tsx` (new role mirror)
+  - `app/realtor/my-listings/page.tsx` (new role mirror)
+  - `app/agent/listings/page.tsx` (modified — AISearchInput mounted above category grid)
+  - `app/agent/listings/for-sale/page.tsx` (modified — Private Offerings tab gets "See all →" linking to the full surface; preview uses VerificationBadge)
+- **`lib/types.ts`** — added `assignedAgentIds?: string[]` field to `Listing`. **Field, not entity**; pragmatic prototype representation of distribution. Translates cleanly to a backend relation table later. No new entity type; rationale logged here per the build rule.
+- **Seed data expanded** (`data/listings.ts`):
+  - Added 7 new private For-Sale offerings to reach **10 total** with verification ratio **5 Verified / 3 Pending / 2 Unverified = 50% / 30% / 20%** per framing.
+    - Verified: listing-private-banawa-townhouse (anchor), listing-private-bgc-condo, plus 3 original (listing-private-cebu-house, listing-exclusive-talisay, listing-broker-mactan-villa)
+    - Pending: listing-private-ortigas-condo, listing-private-ayala-heights, listing-private-paranaque-bungalow
+    - Unverified: listing-private-talamban-lot, listing-private-fairview-house
+  - Added `assignedAgentIds` to 7 listings to seed My Listings density: demo agent agent-001 (Alyssa) now sees **11 listings** spanning developer For-Sale (laurel-12a, laurel-14b, cebu-prime-2br, cebu-prime-1br, veranda-8f), broker For-Sale (broker-mactan-villa, listing-private-bgc-condo, listing-private-ortigas-condo), personal For-Sale (listing-private-banawa-townhouse, listing-private-talamban-lot), and one rental (listing-rent-2).
+- **PRD manifest updated** — promoted private-offerings (#19) and my-listings (#20) from pending to complete with `completedInSession: 4`. Routes corrected: `/agent/listings/for-sale/private` (more PRD-true than original flat path) and `/agent/my-listings`.
+- **Verify Section 12 (Listings 4B, 75 asserts)** added:
+  - Verification visual: 3 states registered, label/badgeClass/semantic per state, pairwise label distinctness, stable semantic IDs locked.
+  - Private Offerings seed: ≥8 private For-Sale offerings; ≥1 in each of 3 states; Verified > Pending > Unverified ratio sanity.
+  - **Seeded-prop anchor: listing-private-banawa-townhouse** — exists, For Sale + Personal Listing, Verified, owned by agent-001, ₱9.8M, in Banawa Cebu City, assigned to agent-001.
+  - AI Listing Search behavior: 7 representative queries × multiple invariants each (location-only, price ceiling, bedrooms, transaction type, composite, commission, anchor query). Each assertion measures the actual UI invariant — "every result has location ∋ 'BGC'", "every result has price ≤ 20M", "chip kinds present match extracted fields", "anchor query returns exactly 1 match = listing-private-bgc-condo with exactly 4 chips."
+  - Search determinism: identical inputs → identical match count + identical IDs in same order.
+  - `extractQuery` primitives: bedrooms/propertyType/location/maxPrice all extract correctly from "2BR condo in BGC under 20M".
+  - `applyQuery + extractQuery === searchListings` consistency.
+  - `SEARCH_RULES` declarative-table totality (≥10 rules).
+  - `LOCATION_KEYWORDS` totality (BGC, Cebu, Makati, Manila, Mactan all present).
+  - `transparencyChipsFor` invariants: extracted fields → chips of matching kinds; unextracted fields → no chip.
+  - My Listings derivations: Alyssa has ≥8 listings; every result is owned-or-assigned; Maria (broker) sees own + her agents'; Alex (realtor) sees ≥ broker's count; ACTIVE_FILTERS triad; active vs archived mutual exclusion; transaction-type filter exclusivity.
+  - Per-role heading distinctness for the My Listings page.
+- **Verify Section 13 (PRD Coverage)** renumbered from 11. Session 4B advancement: 2 routes assert `status="complete"` + `completedInSession=4`; aggregate `complete >= 25`.
+
+### Decisions and engineering notes (carry-forwards)
+
+- **Fifth concentration point: `verificationVisualFor()`** ✓ — the framing explicitly invited this if the pattern composed naturally. It did. Verified/Pending/Unverified visual treatment now lives in exactly one place. Future verification surfaces (S5 listing detail badge, S7 broker dashboard "needs verification" filter, S9 verification workflow itself) compose this helper. **Rule of Three is now Rule of Five across the codebase: `applyTone`, `applyEngineRule`, `splitCommission`, `primaryActionFor`, `verificationVisualFor`.**
+- **Seed verification ratios: 50% Verified / 30% Pending / 20% Unverified** across 10 private For-Sale offerings = 5/3/2. Matches framing guidance. Demo realism honored.
+- **AI Search rule set documented in `SEARCH_RULES` and `LOCATION_KEYWORDS`** as declarative tables. This IS the public contract — verify locks ≥10 rules + key locations. The transparency discipline from Session 3B's AI Reply (`rule: cold-qualifier` in panel header) carries through: the search input shows extracted chips in real time.
+- **AI Search rule set carry-forward:** 14 extraction rules cover bedrooms, max/min price in millions, min commission, 6 transaction types (For Rent / Foreclosure / For Assume / Pre-Selling / RFO / Commercial), and 4 property types (Condo / House and Lot / Townhouse / Lot Only). 24 location keywords ordered longest-first. Stopword list filters structural words ("properties", "commission", "listings") that survive extraction. Future expansions: developer-name match (Session 6/7), OFW-intent match (S7 broker analytics), free-text match against PRD's "Best for OFW / investment / family / rental" tags (S7/9).
+- **AI Search bedroom matching is permissive on ambiguity.** Listings without parseable bedroom counts in their title or property type aren't excluded by a "2BR" query — they're surfaced and the transparency chip shows the filter was applied. The alternative (exclude on absence) would silently filter out broker-listed townhouses, foreclosure houses, etc. Permissive interpretation aligns with how real estate agents actually want to use natural-language search ("show me 2BR options" should surface the candidates and let the agent dig in).
+- **PRD ambiguity on My Listings filter taxonomy resolved.** PRD says "Tabs or filter for: For Sale / For Rent / ..." AND separately "Filter: All / Active / Archived." I read these as two orthogonal axes both present (transaction type + lifecycle state), not either/or. Two chip rows render. Both filter independently.
+- **Distribution model: `assignedAgentIds?: string[]` field on Listing.** Not a new entity. Justification logged here per the build rule. Pragmatic for prototype; translates cleanly to a backend relation table when wired. The semantics are stable: "listings this agent has been distributed (assigned) to share."
+- **Per-role heading distinctness** is the third application of the role-aware action pattern in the listings module: 4A's `primaryActionFor` (action button label), 4A's role-aware subtitle on the Menu page, and now `myListingsHeadingFor` for the My Listings page header. The pattern of three keeps the per-role text differentiation in a single helper per surface.
+- **`primaryActionFor` extension flagged for Session 5/7.** In My Listings, the per-card action button should arguably read "Share with buyer" rather than "Share to my pipeline" — because the listing is already in the agent's pipeline. Session 5A's Share Listing flow will face this directly. Note for 5A planning: either (a) extend `primaryActionFor` with a context arg (e.g. `primaryActionFor(role, count, context: "discover" | "share")`) or (b) introduce a sibling helper `shareActionFor(role, count)`. My instinct is (b) — keep primaryActionFor for the inventory-discovery context and add a focused helper for the share-with-buyer context. Both keep the concentration discipline.
+- **Role mirror scope: Menu + Private Offerings + My Listings.** `/broker/listings`, `/broker/listings/for-sale/private`, `/broker/my-listings` and the realtor equivalents are 1-line re-exports of the agent pages. Drill-down routes (`/for-sale/developers/...`) still aren't mirrored under broker/realtor — Session 7 work. From a broker's Private Offerings page, the back link goes to `/broker/listings` (Menu) rather than `/broker/listings/for-sale` because that route doesn't exist yet under the broker prefix.
+- **Expected 404 carry-forward** continues: tapping a listing's title in any listings surface routes to `/{role}/listings/{listingId}` which is Session 5 work. Surfaced inline as italic subtle note.
+- **Methodology refinement applied throughout Section 12.** AI Search assertions measure the UI invariant directly: "every result has price ≤ 20M" (not "max-price chip exists"); "transparency chips match extracted fields" (not "chips array length is 4"); "anchor query returns exactly 1 match" (not "match count > 0"). Each assertion measures what the agent depends on, not a proxy.
+
+### Verify
+
+- TypeScript: clean (`tsc --noEmit`).
+- Build: **32 routes** (was 26). +6 new routes (Private Offerings + My Listings + 4 role mirrors). Largest: Buyer Conversation at 13.1 kB / 134 kB First Load (unchanged from 3B).
+- Verify: **1004 / 1004 passed** (+87 from Session 4A's 917). Crossed 1000.
+  - Section 1 FK Integrity: 468 → 475 (+7 from new listings)
+  - Section 12 Listings 4B: 75 new asserts
+  - Section 13 PRD Coverage: 52 → 57 (+5 from Session 4B advancement)
+
+### Stop signal met
+
+- ✅ Open `/agent/listings` → AISearchInput appears at the top above the category grid. Type "2BR condo BGC" → transparency chips appear → 1 result card slides in.
+- ✅ Empty results: type "studios with helipad" → empty state with 4 suggestion chips; tap one → search runs with the suggestion as input.
+- ✅ Open `/agent/listings/for-sale` → Private Offerings tab shows "See all →" link with 6-card preview using VerificationBadge.
+- ✅ Tap "See all →" → `/agent/listings/for-sale/private` → 10 private offerings rendered with their verification badges. 4 filter chips (All 10 / Verified 5 / Pending 3 / Unverified 2) work.
+- ✅ Filter to Verified → 5 cards showing sage-deep ShieldCheck badges.
+- ✅ Filter to Pending → 3 cards with gold-deep Clock badges labeled "Pending review."
+- ✅ Filter to Unverified → 2 cards with terracotta-deep ShieldAlert badges.
+- ✅ Open `/agent/my-listings` as Agent → "My Listings" heading; 11 cards across transaction types; All/Active/Archived chips work; transaction-type chips work; AISearchInput filters within scope.
+- ✅ Open `/broker/my-listings` as Broker → "Listings I've distributed" heading; action labels on every card read "Send to 9 agents."
+- ✅ Open `/realtor/my-listings` → "Listings across my network" heading; action labels read "Send to network."
+- ✅ Anchor query "2BR condo in BGC under 20M" → exactly 1 match: Premium 2BR Condo — BGC.
+
+---
+
 ## Session 4A — Listings spine + role-aware actions
 **Date:** 2025-05-29
 **Branch:** main

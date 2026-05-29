@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { AppShell } from "@/components/layout/AppShell";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
+import { AISearchInput } from "@/components/listings/AISearchInput";
 import {
   DEMO_AGENT_ID,
   DEMO_BROKER_ID,
@@ -60,6 +61,8 @@ export default function ListingsMenuPage() {
             {subtitleFor(role)}
           </p>
         </header>
+
+        <AISearchInput listings={seedListings} role={role} />
 
         <Card>
           <CardHeader>

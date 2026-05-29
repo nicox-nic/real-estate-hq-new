@@ -275,6 +275,18 @@ export interface Listing {
   imageUrls?: string[];
   // Engagement (counters; live tracking would be a separate event store)
   engagementCount: number;
+  /**
+   * Agents this listing has been distributed to. For Developer listings,
+   * this is the broker's assignment to specific agents. For Personal/Broker
+   * listings, this is who the owning broker shared the listing with.
+   * Drives the "My Listings" surface: agents see listings they've been
+   * assigned plus ones they own personally.
+   *
+   * Empty/undefined means "not distributed to anyone yet" (Developer
+   * listings only appear in My Listings via this mechanism; an agent
+   * owning a Personal listing always sees it via ownerAgentId).
+   */
+  assignedAgentIds?: string[];
   // Verification (for Private Offerings)
   verificationStatus?: "Verified" | "Pending" | "Unverified";
   // Tags useful for AI search
