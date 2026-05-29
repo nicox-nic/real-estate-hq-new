@@ -5,6 +5,77 @@ Newest sessions at top.
 
 ---
 
+## Session 5C — Site Visit Booking + Deals Pipeline + Closed Deal Logging
+**Date:** 2025-05-29
+**Branch:** main
+**Scope:** Site Visit Booking (#24) with list + detail + booking form. Deals Pipeline (#25) with stage-distribution overview + mobile timeline + desktop collapsible-phase kanban + Deal Detail with 9-stage progress strip + AI Suggested Next Action + required-document checklist gate + Closed Deal Logging sheet. Last PRD-driven session before the marquee block returns at Session 6.
+
+### What shipped
+
+- **`lib/logic/dealStageDerivations.ts`** — Session 5C's concentration point and **6th declarative rule table** in the codebase:
+  - `STAGE_REQUIREMENTS` — per-stage required documents (the 6th declarative rule table after TONE_MARKERS / SEARCH_RULES / SHARE_RULES / FILE_RECOMMENDATION_RULES / SIMULATOR_TIMINGS). Lead Generated has 0 reqs; Documents Submitted has 3 reqs (Buyer valid ID / Income proof / Reservation agreement); Reservation Paid has "Reservation fee receipt"; Contract Signed has "Contract to Sell (CTS)"; etc.
+  - Pipeline navigation: `stageIndex`, `nextStage`, `previousStage`, `pipelineProgress` (monotonic 0..1 across 9 stages).
+  - `advancementGateFor(deal)` — returns `{canAdvance, missingForNext, next}`. A deal at stage N can advance to stage N+1 only when N+1's required docs are NOT in `deal.missingDocuments`. Pure function; UI surfaces it as disabled-Advance-button + required-doc-checklist.
+  - `isClosedWon` — true at Contract Signed and beyond.
+  - `expectedCommissionStatusFor(stage)` — declarative mapping for the commission flip (Reservation Paid → For Approval; Contract Signed → For Closing; Commission Processing → For Payout; Commission Released → Paid). **Session 6 reads what 5C writes.**
+  - `dealsForUser(deals, user, allUsers)` — role-aware visibility with parentId-based team resolution. Agent sees own; Broker sees own + team (via `parentId === broker.id`); Realtor sees direct network + transitive (agents under brokers under the realtor).
+  - `NEXT_ACTION_RULES` — **11-rule declarative table** for AI Suggested Next Action (10 stages + Reservation Paid has 2 variants + fallback). Same transparency discipline as `aiReply` / `aiShareMessage`: rule name visible in UI as "rule: {ruleKey}".
+  - `suggestNextAction(deal)` — returns `{rule, description, label}` with rule transparency for the UI.
+  - `convertSiteVisitToDeal(input)` — pure function creating a new Deal at `Site Visit Done` stage from a Completed visit, populating Reservation Paid reqs as `missingDocuments`, preserving lead/listing/agent references, and referencing the visit ID in `notes`.
+  - `STAGE_PHASES` — Discovery / Qualification / Closing × 3 stages each = 9 total. Used by desktop kanban for collapsible phase groups.
+  - `phaseFor`, `groupDealsByStage`.
+- **`lib/logic/siteVisitDerivations.ts`** — `statusVariantForSiteVisit` (Confirmed/Reminder Sent/Converted → sage "paid"; Proposed/Rescheduled → gold "warm"; Completed → navy "nurture"; No-show → terracotta "hot"), `isUpcomingStatus`, `partitionSiteVisits(visits, nowIso)` with asc/desc sort guarantees.
+- **`lib/types.ts`** — `Deal.commissionId` made optional. Matches PRD semantics: the commission lifecycle begins at Reservation Paid, so deals at Lead Generated / Buyer Qualified / Site Visit Done legitimately have no commission row.
+- **Seed updates**:
+  - **+3 site visits**: sv-007 Ron Marquez Saturday-2pm Proposed (`scheduledAt: "2025-05-31T06:00:00.000Z"` = Sat 2pm Manila — the demo's marquee upcoming-visit anchor); sv-008 Romeo Bautista No-show (covers the no-show variant); sv-009 Eugene Cabrera Confirmed.
+  - **+4 deals** spread across early pipeline stages: deal-011 Ron Marquez @ Lead Generated (₱9.2M Veranda 8F); deal-012 Maria Santos @ Buyer Qualified (₱18.5M Laurel 12A — **composes with share-006 narrative**, the same Maria + Laurel pair as Session 5A/5B's marquee anchor, now flowing into the pipeline); deal-013 Bea Castro @ Site Visit Done (₱28M Talisay villa); deal-014 Lara Hizon @ Reservation Paid mid-document-collection (₱4.5M RFO, missing income proof + reservation agreement — the demo's advancement-gate anchor).
+  - **+1 commission row**: comm-014 for deal-014 ("For Approval" status, agent-007 / broker-003, SPLIT_BROKER_DIRECT).
+- **5 routes built**:
+  - `/agent/site-visits` (list with Upcoming/Past sections + 7 status filter chips with counts + Book CTA)
+  - `/agent/site-visits/[id]` (detail with schedule + location + notes + linked entities + Convert-to-Deal action when Completed + Reminders affordance)
+  - `/agent/site-visits/new` (booking form: buyer / listing / datetime / location / notes; sticky bottom CTA)
+  - `/agent/deals` (pipeline with stage-distribution overview 9-cell grid + mobile timeline + **desktop collapsible-phase kanban**)
+  - `/agent/deals/[id]` (Deal Detail with 9-stage progress strip + AI Suggested Next Action panel with rule transparency + required-document checklist gate with checkable toggle + Advance button disabled when blocked + Close Deal sheet triggered when advancing to Contract Signed + linked Commission row showing expected status per stage + linked Lead/Listing)
+- **PRD manifest**: site-visit-booking (#24) and deals-pipeline (#25) both promoted to complete with comprehensive expectedElements lists (6 elements for #24, 11 elements for #25).
+
+### Decisions and engineering notes (carry-forwards)
+
+- **Desktop kanban Option C (collapsible phase groups)** chosen over A (narrow columns) and B (sticky first+last). Rationale: at 9 stages on a 13" screen, fixed-narrow columns become unreadably tight (~90px each minus padding). The sticky pattern preserves first-and-last as anchors but hides the active middle of the pipeline — where document gates and stage advancement actually happen. Option C collapses entire phases (3 stages each) into a single header bar, letting the agent expand only the phases they're working on. **Matches the calm-UX discipline established in 5A/5B**: hide what's not active.
+- **Rule of Six for declarative rule tables confirmed.** TONE_MARKERS / SEARCH_RULES / SHARE_RULES / FILE_RECOMMENDATION_RULES / SIMULATOR_TIMINGS / **STAGE_REQUIREMENTS** + NEXT_ACTION_RULES. Shape consistently: declared table + verify lock + transparency UI. The pattern has now generated 7 declarative tables across the codebase.
+- **AI Suggested Next Action did NOT earn a sibling helper** — `suggestNextAction` composes from existing stage-routing pattern. Decision rationale: while it could have been split into a sibling of `advancementGateFor`, the rule routing is so tightly coupled to the stage data that co-locating in `dealStageDerivations.ts` keeps the surface area focused. The sibling-helper pattern earns its weight when two helpers diverge in input/output (`applyTone` vs `applyShareTone`, `recommendFilesFor` vs `generateShareMessage`); here the inputs and outputs share too much for the split to add value.
+- **Closed Deal Logging is a sheet, not a route.** Per framing. Triggered when the user taps Advance and the next stage is Contract Signed. Captures final price (defaults to contract price), closing date, handoff notes. Surfaces an inline preview of what the commission flip will do ("Deal advances to Contract Signed. Commission flips to For Closing and progresses to For Payout as the deal moves through Commission Processing"). The actual flip is read declaratively via `expectedCommissionStatusFor(stage)` — Session 6 surfaces the same mapping in the Commission Tracking dashboard.
+- **Required-document gating** lives in `STAGE_REQUIREMENTS` declarative table. UI surfaces a checkable list (tap to mark received → tap again to mark missing); the Advance button is disabled when any required doc is in `missingDocuments`. The 4-pronged structural proof in Section 17 locks: (1) deal cannot advance with missing docs, (2) can advance when satisfied, (3) unrelated missing docs do NOT block (gate evaluates ONLY next-stage reqs), (4) at end of pipeline no advancement possible.
+- **Deal stage names exactly per PRD** with one minor preservation: PRD says "Financing / Payment Approved" → the type uses "Financing Approved" (already shortened in DEAL_STAGES from Session 1; would ripple too widely to change). Documented; not a defect.
+- **Deal.commissionId made optional.** Reflects reality: the commission lifecycle begins at Reservation Paid. Early-stage deals (Lead Generated / Buyer Qualified / Site Visit Done) legitimately have no commission row. FK invariant updated to handle the optional case.
+- **Pattern flag for Session 6**: the Closed Deal Logging commission flip is the upstream half of Commission Tracking's "Money on the Way" flow. Session 6's Commission Tracking dashboard reads `expectedCommissionStatusFor(deal.stage)` — Session 5C writes this declarative mapping, Session 6 visualizes the resulting commission row movement through the timeline.
+- **deal-012 (Maria + Laurel 12A @ Buyer Qualified) composes with share-006 narrative.** The same Maria + Laurel pair that was the marquee anchor in 5A/5B's share campaign is now in the demo's pipeline — the narrative chain is share-006 (Maria received the share message + opened all 4 files at 10:24/10:26/10:27/10:28 AM) → deal-012 (Maria is now a qualified buyer in the pipeline awaiting site visit). **The same buyer + same listing, two sessions apart, woven into a single demo arc.**
+- **Mockup-anchor numbers preserved.** Agent-001's total commission stays at ₱536,250 (the 6 existing commissions: comm-001 through comm-006). The new early-stage deals deliberately have NO commission rows so they don't shift the Session 6 anchor. Locked by Section 17.
+
+### Verify
+
+- TypeScript: clean (`tsc --noEmit`).
+- Build: **39 routes** (was 34 in 5B; +5 new routes: /agent/site-visits + /agent/site-visits/[id] + /agent/site-visits/new + /agent/deals + /agent/deals/[id]).
+- Verify: **1431 / 1431 passed** (+162 from Session 5B's 1269). Distribution:
+  - Section 1 FK Integrity: 489 → 520 (+31 from new site visits, new deals, new commission row, new FK invariants)
+  - Section 2 Structural invariants: 70 → 72 (+2 from optional commissionId handling)
+  - Section 7 Dashboard math: 29 → 29 (assertions updated for new active deal count + new upcoming visit count, total preserved)
+  - **Section 17 NEW (Deals Pipeline + Site Visits): 124 asserts** — second-largest single-session section after 5B's 147
+  - Section 18 PRD Coverage: 65 → 70 (+5 from Session 5C advancement + manifest re-validation)
+
+### Stop signal met
+
+End-to-end deal lifecycle walkable:
+- ✅ `/agent/site-visits` — see Upcoming list with Ron Marquez Saturday-2pm Proposed at top, Past list with No-show / Converted / Completed visits below
+- ✅ Tap Ron's row → site visit detail with schedule (Saturday, May 31, 2:00 PM, Asia/Manila), location (The Veranda sales pavilion), linked Ron Marquez lead + Veranda 8F listing
+- ✅ Tap a Completed visit (e.g., Bea Castro's) → see Convert-to-Deal CTA
+- ✅ `/agent/deals` — stage distribution overview shows 14 deals across 9 stages (1 / 1 / 1 / 1 / 2 / 0 / 3 / 1 / 3); mobile timeline lists each stage with deal cards; desktop kanban groups into Discovery / Qualification / Closing phases with collapse toggles
+- ✅ Tap a deal card → Deal Detail with 9-stage progress strip showing current stage emphasized; AI Suggested Next Action panel with rule transparency ("rule: reservationPaid_missingDocs · Reservation paid but docs incomplete — chase the requirements")
+- ✅ At deal-014 (Reservation Paid, missing 2 docs): Advance button DISABLED, checklist shows "Income proof / employment certificate" and "Reservation agreement" as missing circles; tap each to mark received → button enables → tap Advance → stage moves to Documents Submitted; new requirements appear for next stage
+- ✅ Advance through Documents Submitted → Financing Approved → click Advance to Contract Signed → Closed Deal Logging sheet opens with final price + closing date + notes + "What happens next" preview (Commission flips to For Closing → For Payout as deal moves through Commission Processing)
+- ✅ Linked Commission row shows current commission status + expected status for current stage; updates as stage advances
+
+---
+
 ## Session 5B — Attach Files + Smart Link + Engagement Simulation (marquee follow-on)
 **Date:** 2025-05-29
 **Branch:** main

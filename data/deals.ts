@@ -1,5 +1,6 @@
 import type { Commission, Deal, PayoutAccount } from "@/lib/types";
 import { splitCommission } from "@/lib/logic/commissionSplit";
+import { STAGE_REQUIREMENTS } from "@/lib/logic/dealStageDerivations";
 
 /**
  * Seed Deals & Commissions.
@@ -450,6 +451,96 @@ export const seedDeals: Deal[] = [
     createdAt: "2025-05-10T00:00:00.000Z",
     updatedAt: "2025-05-22T00:00:00.000Z",
   },
+  // ---------- Session 5C additions: deals at the EARLY stages ----------
+  // The existing 10 deals are heavy on the closing stages (matching the
+  // Commission Tracking demo). For the Deals Pipeline to render visible
+  // density across all 9 stages, we add 4 deals at Lead Generated /
+  // Buyer Qualified / Site Visit Done / Reservation Paid.
+  {
+    id: "deal-011",
+    buyerProfileId: "buyer-022",
+    buyerName: "Ron Marquez",
+    listingId: "listing-veranda-8f",
+    listingTitle: "The Veranda — Tower 1 Unit 8F",
+    stage: "Lead Generated",
+    contractPrice: 9_200_000,
+    commissionRate: 0.03,
+    ...SPLIT_STANDARD,
+    agentId: "agent-001",
+    brokerId: "broker-001",
+    realtorId: "realtor-001",
+    // No commissionId yet — early-stage deals don't have a commission row.
+    missingDocuments: [
+      ...STAGE_REQUIREMENTS["Buyer Qualified"],
+    ],
+    notes:
+      "Just opened a smart link — initial inquiry from The Veranda QR scan.",
+    createdAt: "2025-05-28T00:00:00.000Z",
+    updatedAt: "2025-05-28T00:00:00.000Z",
+  },
+  {
+    id: "deal-012",
+    buyerProfileId: "buyer-005",
+    buyerName: "Maria Santos",
+    listingId: "listing-laurel-12a",
+    listingTitle: "Laurel Hills Estate — Unit 12A",
+    stage: "Buyer Qualified",
+    contractPrice: 18_500_000,
+    commissionRate: 0.03,
+    ...SPLIT_STANDARD,
+    agentId: "agent-001",
+    brokerId: "broker-001",
+    realtorId: "realtor-001",
+    // No commissionId yet — early-stage deal.
+    missingDocuments: [...STAGE_REQUIREMENTS["Site Visit Done"]],
+    notes:
+      "Maria's profile qualified, site visit scheduled for May 31. Composes with share-006 narrative.",
+    createdAt: "2025-05-25T00:00:00.000Z",
+    updatedAt: "2025-05-29T00:00:00.000Z",
+  },
+  {
+    id: "deal-013",
+    buyerProfileId: "buyer-014",
+    buyerName: "Bea Castro",
+    listingId: "listing-exclusive-talisay",
+    listingTitle: "Exclusive Hilltop Villa — Talisay",
+    stage: "Site Visit Done",
+    contractPrice: 28_000_000,
+    commissionRate: 0.03,
+    ...SPLIT_STANDARD,
+    agentId: "agent-002",
+    brokerId: "broker-001",
+    realtorId: "realtor-001",
+    // No commissionId yet — pre-reservation deal.
+    missingDocuments: [...STAGE_REQUIREMENTS["Reservation Paid"]],
+    notes: "Visit on May 28 went very well; awaiting reservation fee.",
+    createdAt: "2025-05-26T00:00:00.000Z",
+    updatedAt: "2025-05-28T00:00:00.000Z",
+  },
+  {
+    id: "deal-014",
+    buyerProfileId: "buyer-024",
+    buyerName: "Lara Hizon",
+    listingId: "listing-rfo-2",
+    listingTitle: "Amaia Steps — 2BR RFO",
+    stage: "Reservation Paid",
+    contractPrice: 4_500_000,
+    reservationDate: "2025-05-25",
+    commissionRate: 0.03,
+    ...SPLIT_BROKER_DIRECT,
+    agentId: "agent-007",
+    brokerId: "broker-003",
+    commissionId: "comm-014",
+    // Mid-document collection — incomplete required docs for Documents Submitted
+    missingDocuments: [
+      "Income proof / employment certificate",
+      "Reservation agreement",
+    ],
+    notes:
+      "Reservation paid May 25. Awaiting income proof + signed reservation agreement.",
+    createdAt: "2025-05-25T00:00:00.000Z",
+    updatedAt: "2025-05-29T00:00:00.000Z",
+  },
 ];
 
 export const seedCommissions: Commission[] = [
@@ -668,6 +759,27 @@ export const seedCommissions: Commission[] = [
     timeline: [
       { stage: "Reserved", completedAt: "2025-05-10" },
       { stage: "Documents Submitted", completedAt: "2025-05-22" },
+      { stage: "Contract Signed" },
+      { stage: "Commission Approved" },
+      { stage: "Processing" },
+      { stage: "Released" },
+    ],
+  }),
+  // ---------- Session 5C: commission row for the Reservation-Paid deal.
+  // Earlier-stage deals (deal-011 / 012 / 013) intentionally have no
+  // commission row yet — the commission lifecycle begins at Reservation.
+  buildCommission({
+    id: "comm-014",
+    dealId: "deal-014",
+    contractPrice: 4_500_000,
+    commissionRate: 0.03,
+    ...SPLIT_BROKER_DIRECT,
+    status: "For Approval",
+    agentId: "agent-007",
+    brokerId: "broker-003",
+    timeline: [
+      { stage: "Reserved", completedAt: "2025-05-25" },
+      { stage: "Documents Submitted" },
       { stage: "Contract Signed" },
       { stage: "Commission Approved" },
       { stage: "Processing" },

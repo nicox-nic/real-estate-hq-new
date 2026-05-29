@@ -76,4 +76,44 @@ export const seedSiteVisits: SiteVisit[] = [
     status: "Completed",
     notes: "Booked reservation immediately after viewing.",
   },
+  // Session 5C additions: cover Proposed, No-show, plus a Saturday-2pm
+  // "marquee" upcoming anchor for the demo.
+  {
+    id: "sv-007",
+    leadId: "lead-portal-02",
+    buyerName: "Ron Marquez",
+    listingId: "listing-veranda-8f",
+    listingTitle: "The Veranda — Tower 1 Unit 8F",
+    agentId: "agent-001",
+    // Saturday 2pm Manila = Saturday 06:00 UTC
+    scheduledAt: "2025-05-31T06:00:00.000Z",
+    status: "Proposed",
+    locationNote:
+      "The Veranda sales pavilion — Ron prefers Saturday afternoons.",
+    notes:
+      "Demo anchor: Ron Marquez Saturday 2pm — proposed slot pending buyer confirmation.",
+  },
+  {
+    id: "sv-008",
+    leadId: "lead-manual-01",
+    buyerName: "Romeo Bautista",
+    listingId: "listing-rfo-2",
+    listingTitle: "Amaia Steps — 2BR RFO",
+    agentId: "agent-007",
+    scheduledAt: "2025-05-20T10:00:00.000Z",
+    status: "No-show",
+    notes: "Buyer did not arrive; agent followed up the next morning.",
+  },
+  {
+    id: "sv-009",
+    leadId: "lead-fb-03",
+    buyerName: "Eugene Cabrera",
+    listingId: "listing-presell-1",
+    listingTitle: "Mandaue Skyline — Pre-Selling 1BR",
+    agentId: "agent-013",
+    scheduledAt: "2025-06-02T11:00:00.000Z",
+    status: "Confirmed",
+    locationNote: "Mandaue Skyline scale model showroom — 2nd floor",
+    notes: "First-time buyer; will bring spouse.",
+  },
 ];

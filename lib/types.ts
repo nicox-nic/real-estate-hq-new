@@ -343,8 +343,11 @@ export interface Deal {
   // Documents
   missingDocuments?: string[];
   notes?: string;
-  // Linkage to commission row(s)
-  commissionId: string;
+  // Linkage to commission row(s) — undefined for early-stage deals where
+  // the commission lifecycle has not begun yet (Lead Generated / Buyer
+  // Qualified / Site Visit Done). A commission row is typically created
+  // when the deal reaches Reservation Paid.
+  commissionId?: string;
   createdAt: string;
   updatedAt: string;
 }

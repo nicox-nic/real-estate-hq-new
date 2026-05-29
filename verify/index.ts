@@ -78,6 +78,11 @@ import {
 } from "@/lib/logic/commissionAggregation";
 import { prdRoutes, EXPECTED_ROUTE_COUNT } from "./prdManifest";
 import type { LeadSource, AccountStatus } from "@/lib/types";
+import { DEAL_STAGES } from "@/lib/types";
+
+// Reference clock used by Section 17 (and Section 7 keeps its local copy
+// for readability). Kept in sync.
+const SECTION_17_REFERENCE_ISO = "2025-05-29T08:00:00.000Z";
 import {
   AGENT_SCHEMA,
   BROKER_SCHEMA,
@@ -184,6 +189,27 @@ import {
   labelFor as engagementLabelFor,
   categoryShortLabel,
 } from "@/components/share/FileEngagementStrip";
+import {
+  STAGE_REQUIREMENTS,
+  stageIndex,
+  nextStage,
+  pipelineProgress,
+  advancementGateFor,
+  isClosedWon,
+  expectedCommissionStatusFor,
+  dealsForUser,
+  suggestNextAction,
+  NEXT_ACTION_RULES,
+  convertSiteVisitToDeal,
+  groupDealsByStage,
+  phaseFor,
+  STAGE_PHASES,
+} from "@/lib/logic/dealStageDerivations";
+import {
+  statusVariantForSiteVisit,
+  isUpcomingStatus,
+  partitionSiteVisits,
+} from "@/lib/logic/siteVisitDerivations";
 
 // ----------------------------------------------------------------------------
 // Mini assertion framework
@@ -347,9 +373,9 @@ function checkFKIntegrity() {
     );
     check(
       section,
-      `Deal ${d.id} commissionId resolves`,
-      commissionIds.has(d.commissionId),
-      d.commissionId,
+      `Deal ${d.id} commissionId resolves (or is undefined for early-stage)`,
+      d.commissionId === undefined || commissionIds.has(d.commissionId),
+      d.commissionId ?? "(undefined — early-stage deal)",
     );
   }
 
@@ -1312,13 +1338,13 @@ function checkDashboardMath() {
   check(
     section,
     "KPI: siteVisitsBooked for demo agent (future, confirmed-ish)",
-    kpis.siteVisitsBooked === 2,
+    kpis.siteVisitsBooked === 3,
     `got ${kpis.siteVisitsBooked}`,
   );
   check(
     section,
     "KPI: activeDeals for demo agent",
-    kpis.activeDeals === 4,
+    kpis.activeDeals === 6,
     `got ${kpis.activeDeals}`,
   );
 
@@ -1380,8 +1406,8 @@ function checkDashboardMath() {
   const activeDeals = selectActiveDeals(DEMO_AGENT_ID, seedDeals);
   check(
     section,
-    "Active deals selector returns 4 active deals for demo agent",
-    activeDeals.length === 4,
+    "Active deals selector returns 6 active deals for demo agent",
+    activeDeals.length === 6,
     `got ${activeDeals.length}`,
   );
   check(
@@ -1431,7 +1457,7 @@ function checkDashboardMath() {
   check(
     section,
     "Briefing sentence references active deals count",
-    briefing.includes("4 active deal"),
+    briefing.includes("6 active deal"),
     briefing,
   );
 
@@ -4108,11 +4134,648 @@ function checkAttachFilesAndEngagement() {
 }
 
 // ----------------------------------------------------------------------------
-// 15. PRD Coverage
+// 17. Deals Pipeline + Site Visits (Session 5C)
+// ----------------------------------------------------------------------------
+
+function checkDealsAndSiteVisits() {
+  const section = "17. Deals Pipeline + Site Visits";
+
+  // -- STAGE_REQUIREMENTS table totality --
+  const stageKeys = Object.keys(STAGE_REQUIREMENTS);
+  check(
+    section,
+    "STAGE_REQUIREMENTS has all 9 PRD stages",
+    stageKeys.length === 9,
+    `got ${stageKeys.length}`,
+  );
+  for (const stage of [
+    "Lead Generated",
+    "Buyer Qualified",
+    "Site Visit Done",
+    "Reservation Paid",
+    "Documents Submitted",
+    "Financing Approved",
+    "Contract Signed",
+    "Commission Processing",
+    "Commission Released",
+  ]) {
+    check(
+      section,
+      `STAGE_REQUIREMENTS includes "${stage}"`,
+      Object.prototype.hasOwnProperty.call(STAGE_REQUIREMENTS, stage),
+    );
+  }
+
+  // "Lead Generated" is the start — no entry requirements
+  check(
+    section,
+    "Lead Generated has 0 entry requirements (pipeline start)",
+    STAGE_REQUIREMENTS["Lead Generated"].length === 0,
+  );
+
+  // The mid-pipeline stages have multiple required documents
+  check(
+    section,
+    "Documents Submitted requires ≥ 2 documents (PRD doc bundle)",
+    STAGE_REQUIREMENTS["Documents Submitted"].length >= 2,
+  );
+  check(
+    section,
+    "Reservation Paid requires reservation fee receipt",
+    STAGE_REQUIREMENTS["Reservation Paid"].includes(
+      "Reservation fee receipt",
+    ),
+  );
+  check(
+    section,
+    "Contract Signed requires Contract to Sell (CTS)",
+    STAGE_REQUIREMENTS["Contract Signed"].includes("Contract to Sell (CTS)"),
+  );
+
+  // -- Pipeline navigation --
+  check(
+    section,
+    "stageIndex('Lead Generated') = 0",
+    stageIndex("Lead Generated") === 0,
+  );
+  check(
+    section,
+    "stageIndex('Commission Released') = 8 (last stage)",
+    stageIndex("Commission Released") === 8,
+  );
+  check(
+    section,
+    "nextStage('Buyer Qualified') = 'Site Visit Done'",
+    nextStage("Buyer Qualified") === "Site Visit Done",
+  );
+  check(
+    section,
+    "nextStage('Commission Released') = undefined (end of pipeline)",
+    nextStage("Commission Released") === undefined,
+  );
+  check(
+    section,
+    "pipelineProgress('Lead Generated') = 0",
+    pipelineProgress("Lead Generated") === 0,
+  );
+  check(
+    section,
+    "pipelineProgress('Commission Released') = 1 (100%)",
+    pipelineProgress("Commission Released") === 1,
+  );
+  // Monotonic increase across the stages
+  let progressOK = true;
+  for (let i = 0; i < DEAL_STAGES.length - 1; i++) {
+    const a = pipelineProgress(DEAL_STAGES[i]!);
+    const b = pipelineProgress(DEAL_STAGES[i + 1]!);
+    if (b <= a) progressOK = false;
+  }
+  check(
+    section,
+    "pipelineProgress is strictly monotonic across all 9 stages",
+    progressOK,
+  );
+
+  // -- STAGE_PHASES — 3 phases × 3 stages each = 9 stages total --
+  check(
+    section,
+    "STAGE_PHASES has exactly 3 phases (Discovery / Qualification / Closing)",
+    Object.keys(STAGE_PHASES).length === 3,
+  );
+  const phaseStageCount = Object.values(STAGE_PHASES).reduce(
+    (sum, arr) => sum + arr.length,
+    0,
+  );
+  check(
+    section,
+    "STAGE_PHASES covers all 9 stages",
+    phaseStageCount === 9,
+    `got ${phaseStageCount}`,
+  );
+  // Every stage belongs to exactly one phase
+  const phaseStages = new Set(Object.values(STAGE_PHASES).flat());
+  check(
+    section,
+    "Every DEAL_STAGES stage appears in STAGE_PHASES exactly once",
+    phaseStages.size === 9,
+  );
+  // phaseFor returns the right phase
+  check(
+    section,
+    "phaseFor('Lead Generated') = 'Discovery'",
+    phaseFor("Lead Generated") === "Discovery",
+  );
+  check(
+    section,
+    "phaseFor('Reservation Paid') = 'Qualification'",
+    phaseFor("Reservation Paid") === "Qualification",
+  );
+  check(
+    section,
+    "phaseFor('Commission Released') = 'Closing'",
+    phaseFor("Commission Released") === "Closing",
+  );
+
+  // -- Advancement gate: 4-pronged structural proof on document-gating --
+  // Anchor: deal-014 (Lara Hizon, Reservation Paid, mid-document collection)
+  const deal014 = seedDeals.find((d) => d.id === "deal-014");
+  check(section, "deal-014 anchor exists", !!deal014);
+  if (!deal014) return;
+  check(
+    section,
+    "deal-014 is at Reservation Paid stage",
+    deal014.stage === "Reservation Paid",
+  );
+  check(
+    section,
+    "deal-014 has missingDocuments set (mid-collection)",
+    (deal014.missingDocuments?.length ?? 0) > 0,
+  );
+
+  // Prong 1: cannot advance with missing docs
+  const gateBefore = advancementGateFor(deal014);
+  check(
+    section,
+    "Gate prong 1: deal-014 cannot advance with missing docs",
+    gateBefore.canAdvance === false,
+  );
+  check(
+    section,
+    "Gate prong 1: gate.next is 'Documents Submitted'",
+    gateBefore.next === "Documents Submitted",
+  );
+  check(
+    section,
+    "Gate prong 1: missingForNext includes deal's actual missing docs",
+    gateBefore.missingForNext.length > 0,
+  );
+
+  // Prong 2: with all docs satisfied, can advance
+  const dealAllDocs = { ...deal014, missingDocuments: [] };
+  const gateAfter = advancementGateFor(dealAllDocs);
+  check(
+    section,
+    "Gate prong 2: deal can advance when all docs satisfied",
+    gateAfter.canAdvance === true,
+  );
+  check(
+    section,
+    "Gate prong 2: missingForNext is empty when docs satisfied",
+    gateAfter.missingForNext.length === 0,
+  );
+
+  // Prong 3: gate evaluates AGAINST the next stage's requirements, not the
+  // current stage's. Setting unrelated docs missing doesn't block advancement
+  // (only the required-for-next set does).
+  const dealUnrelatedMissing = {
+    ...deal014,
+    missingDocuments: ["Some unrelated doc"],
+  };
+  const gateUnrelated = advancementGateFor(dealUnrelatedMissing);
+  check(
+    section,
+    "Gate prong 3: unrelated missing docs do NOT block advancement",
+    gateUnrelated.canAdvance === true,
+  );
+
+  // Prong 4: at end of pipeline, no advancement possible
+  const dealAtEnd = { ...deal014, stage: "Commission Released" as const };
+  const gateEnd = advancementGateFor(dealAtEnd);
+  check(
+    section,
+    "Gate prong 4: deal at Commission Released cannot advance further",
+    gateEnd.canAdvance === false && gateEnd.next === undefined,
+  );
+
+  // -- isClosedWon / expectedCommissionStatusFor (the commission flip) --
+  check(
+    section,
+    "isClosedWon at 'Lead Generated' = false",
+    !isClosedWon({ ...deal014, stage: "Lead Generated" }),
+  );
+  check(
+    section,
+    "isClosedWon at 'Contract Signed' = true (closing point)",
+    isClosedWon({ ...deal014, stage: "Contract Signed" }),
+  );
+  check(
+    section,
+    "isClosedWon at 'Commission Released' = true",
+    isClosedWon({ ...deal014, stage: "Commission Released" }),
+  );
+
+  // Commission flip mapping (the Session 5C → Session 6 hand-off)
+  check(
+    section,
+    "Commission flip: Reservation Paid → For Approval",
+    expectedCommissionStatusFor("Reservation Paid") === "For Approval",
+  );
+  check(
+    section,
+    "Commission flip: Contract Signed → For Closing",
+    expectedCommissionStatusFor("Contract Signed") === "For Closing",
+  );
+  check(
+    section,
+    "Commission flip: Commission Processing → For Payout (the closing flip)",
+    expectedCommissionStatusFor("Commission Processing") === "For Payout",
+  );
+  check(
+    section,
+    "Commission flip: Commission Released → Paid",
+    expectedCommissionStatusFor("Commission Released") === "Paid",
+  );
+
+  // -- NEXT_ACTION_RULES table — same transparency discipline as other
+  //    declarative rule tables (Rule of Six now confirmed) --
+  const ruleKeys = Object.keys(NEXT_ACTION_RULES);
+  check(
+    section,
+    "NEXT_ACTION_RULES has 11 rules (one per stage + fallback)",
+    ruleKeys.length === 11,
+    `got ${ruleKeys.length}`,
+  );
+  // Each rule has description + label
+  for (const k of ruleKeys) {
+    const rule = (NEXT_ACTION_RULES as Record<string, { description: string; label: string }>)[k]!;
+    check(
+      section,
+      `Rule ${k} has non-empty description`,
+      rule.description.length > 0,
+    );
+    check(section, `Rule ${k} has non-empty label`, rule.label.length > 0);
+  }
+
+  // -- AI Next Action routing per stage --
+  const probes: Array<{ stage: string; expectedRule: string }> = [
+    { stage: "Lead Generated", expectedRule: "leadGen_noMessage" },
+    { stage: "Buyer Qualified", expectedRule: "buyerQualified_noSiteVisit" },
+    { stage: "Site Visit Done", expectedRule: "siteVisitDone_noReservation" },
+    { stage: "Documents Submitted", expectedRule: "documentsSubmitted_awaitingFinancing" },
+    { stage: "Financing Approved", expectedRule: "financingApproved_prepareContract" },
+    { stage: "Contract Signed", expectedRule: "contractSigned_processCommission" },
+    { stage: "Commission Processing", expectedRule: "commissionProcessing_awaitPayout" },
+    { stage: "Commission Released", expectedRule: "commissionReleased_celebrate" },
+  ];
+  for (const probe of probes) {
+    const result = suggestNextAction({
+      ...deal014,
+      stage: probe.stage as typeof deal014.stage,
+    });
+    check(
+      section,
+      `Next action at "${probe.stage}" → rule "${probe.expectedRule}"`,
+      result.rule === probe.expectedRule,
+      `got ${result.rule}`,
+    );
+  }
+
+  // Reservation Paid has TWO rules — missing docs vs ready
+  const resvWithMissing = suggestNextAction({
+    ...deal014,
+    stage: "Reservation Paid",
+    missingDocuments: [
+      "Buyer valid ID",
+      "Income proof / employment certificate",
+      "Reservation agreement",
+    ],
+  });
+  check(
+    section,
+    "Reservation Paid with all docs missing → 'reservationPaid_missingDocs'",
+    resvWithMissing.rule === "reservationPaid_missingDocs",
+  );
+  const resvReady = suggestNextAction({
+    ...deal014,
+    stage: "Reservation Paid",
+    missingDocuments: [],
+  });
+  check(
+    section,
+    "Reservation Paid with all docs ready → 'reservationPaid_docsReady'",
+    resvReady.rule === "reservationPaid_docsReady",
+  );
+
+  // -- dealsForUser role-aware filtering --
+  const demoAgent = seedUsers.find((u) => u.id === "agent-001");
+  const demoBroker = seedUsers.find((u) => u.id === "broker-001");
+  const demoRealtor = seedUsers.find((u) => u.id === "realtor-001");
+  check(section, "Demo agent user found", !!demoAgent);
+  check(section, "Demo broker user found", !!demoBroker);
+  check(section, "Demo realtor user found", !!demoRealtor);
+
+  if (demoAgent && demoBroker && demoRealtor) {
+    const agentDeals = dealsForUser(seedDeals, demoAgent, seedUsers);
+    const brokerDeals = dealsForUser(seedDeals, demoBroker, seedUsers);
+    const realtorDeals = dealsForUser(seedDeals, demoRealtor, seedUsers);
+
+    check(
+      section,
+      "Agent sees only their own deals (every result has agentId == agent-001)",
+      agentDeals.every((d) => d.agentId === "agent-001"),
+    );
+    check(
+      section,
+      "Agent's deal count ≥ 1 (anchor: deal-001 is theirs)",
+      agentDeals.some((d) => d.id === "deal-001"),
+    );
+
+    // Broker sees own + team's deals (superset of agent's)
+    check(
+      section,
+      "Broker sees broker-001's team deals (superset of any one agent under them)",
+      brokerDeals.length >= agentDeals.length,
+      `broker=${brokerDeals.length}, agent=${agentDeals.length}`,
+    );
+    // No broker leakage: broker only sees deals where agent is in their team or broker is them
+    const brokerTeamAgentIds = new Set(
+      seedUsers
+        .filter((u) => u.parentId === demoBroker.id)
+        .map((u) => u.id),
+    );
+    check(
+      section,
+      "Broker deals: every visible deal links to broker-001 or an agent under broker-001",
+      brokerDeals.every(
+        (d) =>
+          d.brokerId === demoBroker.id ||
+          (d.agentId !== undefined && brokerTeamAgentIds.has(d.agentId)),
+      ),
+    );
+
+    // Realtor sees their network (typically the broadest)
+    check(
+      section,
+      "Realtor visibility is non-empty",
+      realtorDeals.length > 0,
+    );
+  }
+
+  // -- Marquee Ron Marquez Saturday-2pm site visit anchor --
+  const ron = seedSiteVisits.find((v) => v.id === "sv-007");
+  check(section, "sv-007 Ron Marquez Saturday-2pm anchor exists", !!ron);
+  if (ron) {
+    check(
+      section,
+      "sv-007: status is Proposed (pending buyer confirmation)",
+      ron.status === "Proposed",
+    );
+    check(
+      section,
+      "sv-007: assigned to demo agent-001",
+      ron.agentId === "agent-001",
+    );
+    check(
+      section,
+      "sv-007: scheduled for Saturday 2pm PHT (06:00 UTC)",
+      ron.scheduledAt === "2025-05-31T06:00:00.000Z",
+    );
+    // 2025-05-31 is a Saturday
+    const day = new Date(ron.scheduledAt).getUTCDay();
+    check(section, "sv-007: scheduledAt falls on Saturday (UTC)", day === 6);
+  }
+
+  // No-show anchor
+  const noshow = seedSiteVisits.find((v) => v.id === "sv-008");
+  check(section, "sv-008 No-show anchor exists", !!noshow);
+  check(
+    section,
+    "sv-008: status is 'No-show' (covers the no-show variant)",
+    noshow?.status === "No-show",
+  );
+
+  // -- Site visit status variant mapping --
+  check(
+    section,
+    "statusVariantForSiteVisit('Confirmed') = 'paid' (sage)",
+    statusVariantForSiteVisit("Confirmed") === "paid",
+  );
+  check(
+    section,
+    "statusVariantForSiteVisit('Proposed') = 'warm' (gold)",
+    statusVariantForSiteVisit("Proposed") === "warm",
+  );
+  check(
+    section,
+    "statusVariantForSiteVisit('No-show') = 'hot' (terracotta)",
+    statusVariantForSiteVisit("No-show") === "hot",
+  );
+  check(
+    section,
+    "statusVariantForSiteVisit('Completed') = 'nurture' (navy)",
+    statusVariantForSiteVisit("Completed") === "nurture",
+  );
+
+  // isUpcomingStatus
+  check(
+    section,
+    "isUpcomingStatus('Confirmed') = true",
+    isUpcomingStatus("Confirmed") === true,
+  );
+  check(
+    section,
+    "isUpcomingStatus('Completed') = false",
+    isUpcomingStatus("Completed") === false,
+  );
+  check(
+    section,
+    "isUpcomingStatus('No-show') = false",
+    isUpcomingStatus("No-show") === false,
+  );
+
+  // partitionSiteVisits at seed reference time
+  const partition = partitionSiteVisits(
+    seedSiteVisits,
+    SECTION_17_REFERENCE_ISO,
+  );
+  check(
+    section,
+    "partitionSiteVisits returns non-empty upcoming",
+    partition.upcoming.length > 0,
+  );
+  check(
+    section,
+    "partitionSiteVisits: upcoming sorted ascending by scheduledAt",
+    partition.upcoming.every(
+      (v, i, arr) =>
+        i === 0 ||
+        v.scheduledAt.localeCompare(arr[i - 1]!.scheduledAt) >= 0,
+    ),
+  );
+  check(
+    section,
+    "partitionSiteVisits: past sorted descending by scheduledAt (most recent first)",
+    partition.past.every(
+      (v, i, arr) =>
+        i === 0 ||
+        v.scheduledAt.localeCompare(arr[i - 1]!.scheduledAt) <= 0,
+    ),
+  );
+  check(
+    section,
+    "Every site visit is in exactly one partition (no overlap or gap)",
+    partition.upcoming.length + partition.past.length ===
+      seedSiteVisits.length,
+  );
+
+  // -- convertSiteVisitToDeal: site visit → deal at 'Site Visit Done' --
+  const completedVisit = seedSiteVisits.find(
+    (v) => v.status === "Completed",
+  );
+  check(section, "A Completed site visit exists in seed", !!completedVisit);
+  if (completedVisit) {
+    const newDealFields = convertSiteVisitToDeal({
+      siteVisitId: completedVisit.id,
+      leadId: completedVisit.leadId,
+      buyerName: completedVisit.buyerName,
+      buyerProfileId: "buyer-test",
+      listingId: completedVisit.listingId,
+      listingTitle: completedVisit.listingTitle,
+      agentId: completedVisit.agentId,
+      contractPrice: 8_500_000,
+      commissionRate: 0.03,
+      realtyShare: 0.2,
+      brokerShare: 0.3,
+      agentShare: 0.5,
+      nowIso: "2025-05-29T08:00:00.000Z",
+    });
+    check(
+      section,
+      "Converted deal starts at 'Site Visit Done' stage",
+      newDealFields.stage === "Site Visit Done",
+    );
+    check(
+      section,
+      "Converted deal preserves leadId / listingId / agentId",
+      newDealFields.listingId === completedVisit.listingId &&
+        newDealFields.agentId === completedVisit.agentId &&
+        newDealFields.buyerName === completedVisit.buyerName,
+    );
+    check(
+      section,
+      "Converted deal has Reservation Paid requirements in missingDocuments (the next stage)",
+      newDealFields.missingDocuments?.includes("Reservation fee receipt") ===
+        true,
+    );
+    check(
+      section,
+      "Converted deal references site visit ID in notes",
+      newDealFields.notes?.includes(completedVisit.id) === true,
+    );
+  }
+
+  // -- groupDealsByStage covers all 9 stages --
+  const grouped = groupDealsByStage(seedDeals);
+  check(
+    section,
+    "groupDealsByStage returns a Map covering all 9 stages",
+    DEAL_STAGES.every((s) => grouped.has(s)),
+  );
+  check(
+    section,
+    "groupDealsByStage sum == seedDeals.length",
+    Array.from(grouped.values()).reduce((sum, arr) => sum + arr.length, 0) ===
+      seedDeals.length,
+  );
+
+  // -- Pipeline density: ≥ 1 deal at the early stages (5C added) --
+  check(
+    section,
+    "≥ 1 deal at 'Lead Generated' (early-stage density)",
+    (grouped.get("Lead Generated")?.length ?? 0) >= 1,
+  );
+  check(
+    section,
+    "≥ 1 deal at 'Buyer Qualified' (early-stage density)",
+    (grouped.get("Buyer Qualified")?.length ?? 0) >= 1,
+  );
+  check(
+    section,
+    "≥ 1 deal at 'Site Visit Done' (early-stage density)",
+    (grouped.get("Site Visit Done")?.length ?? 0) >= 1,
+  );
+  check(
+    section,
+    "≥ 1 deal at 'Reservation Paid' (Lara Hizon anchor)",
+    (grouped.get("Reservation Paid")?.length ?? 0) >= 1,
+  );
+
+  // -- Early-stage deals do NOT have commission rows (PRD: lifecycle begins
+  //    at Reservation) --
+  const earlyStages = new Set([
+    "Lead Generated",
+    "Buyer Qualified",
+    "Site Visit Done",
+  ]);
+  for (const d of seedDeals) {
+    if (earlyStages.has(d.stage)) {
+      check(
+        section,
+        `Early-stage deal ${d.id} (${d.stage}) has no commissionId`,
+        d.commissionId === undefined,
+      );
+    }
+  }
+
+  // deal-014 (Reservation Paid) HAS a commission row (lifecycle has begun)
+  check(
+    section,
+    "deal-014 (Reservation Paid) has commissionId set",
+    deal014.commissionId === "comm-014",
+  );
+  const comm014 = seedCommissions.find((c) => c.id === "comm-014");
+  check(
+    section,
+    "comm-014 commission row exists",
+    !!comm014,
+  );
+  check(
+    section,
+    "comm-014 status is 'For Approval' (commission lifecycle just begun)",
+    comm014?.status === "For Approval",
+  );
+
+  // -- Mockup-anchor numbers preserved: agent-001's commission numbers
+  //    haven't shifted (Session 6 marquee depends on these) --
+  const agent001Commissions = seedCommissions.filter(
+    (c) => c.agentId === "agent-001",
+  );
+  // Anchor sum from existing seed: ₱536,250 (6 commissions covering
+  // For Closing / For Payout / Paid / On Hold). Session 6 marquee reads
+  // this; locking it here prevents accidental drift in future sessions.
+  const totalAgent001 = agent001Commissions.reduce(
+    (s, c) => s + c.agentAmount,
+    0,
+  );
+  check(
+    section,
+    "Session 6 anchor preserved: agent-001 total commission = ₱536,250",
+    totalAgent001 === 536_250,
+    `got ${totalAgent001}`,
+  );
+
+  // Maria + Laurel 12A composes across sessions: share-006 → deal-012
+  const dealMaria = seedDeals.find((d) => d.id === "deal-012");
+  check(section, "deal-012 (Maria + Laurel) anchor exists", !!dealMaria);
+  check(
+    section,
+    "deal-012 references buyer-005 (Maria) and listing-laurel-12a",
+    dealMaria?.buyerProfileId === "buyer-005" &&
+      dealMaria?.listingId === "listing-laurel-12a",
+  );
+  check(
+    section,
+    "deal-012 is at Buyer Qualified (mid-cycle composing with share-006)",
+    dealMaria?.stage === "Buyer Qualified",
+  );
+}
+
+// ----------------------------------------------------------------------------
+// 18. PRD Coverage
 // ----------------------------------------------------------------------------
 
 function reportPRDCoverage() {
-  const section = "15. PRD Coverage";
+  const section = "18. PRD Coverage";
 
   check(
     section,
@@ -4382,6 +5045,38 @@ function reportPRDCoverage() {
     complete >= 28,
     `complete=${complete}`,
   );
+
+  // Session 5C stop-signal: site-visit-booking (#24) + deals-pipeline (#25).
+  // Closed Deal Logging is a sheet (modal), not a route — locked by
+  // Section 17. Pipeline expansion across phases is the marquee surface.
+  const session5cRoutes = ["site-visit-booking", "deals-pipeline"];
+  for (const id of session5cRoutes) {
+    const entry = prdRoutes.find((r) => r.id === id);
+    if (!entry) {
+      fail(section, `Session 5C route ${id} present in manifest`, "missing");
+      continue;
+    }
+    check(
+      section,
+      `Session 5C route "${id}" status = complete`,
+      entry.status === "complete",
+      `got ${entry.status}`,
+    );
+    check(
+      section,
+      `Session 5C route "${id}" completedInSession = 5`,
+      entry.completedInSession === 5,
+      `got ${entry.completedInSession}`,
+    );
+  }
+
+  // Coverage cannot regress: 28 (Session 5B) + 2 (Session 5C routes) = 30.
+  check(
+    section,
+    "Coverage progress: ≥ 30 routes complete after Session 5C",
+    complete >= 30,
+    `complete=${complete}`,
+  );
 }
 
 // ----------------------------------------------------------------------------
@@ -4461,5 +5156,6 @@ checkListingsSpine();
 checkListings4B();
 checkShareListing();
 checkAttachFilesAndEngagement();
+checkDealsAndSiteVisits();
 reportPRDCoverage();
 report();
