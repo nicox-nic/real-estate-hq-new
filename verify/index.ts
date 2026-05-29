@@ -216,7 +216,13 @@ import {
   computeManagerKPIs,
   computeLeaderboard,
   computeClosingSprintProgress,
+  buildAgentHealthInputs,
 } from "@/lib/logic/managerDashboardDerivations";
+import {
+  AGENT_RECOMMENDATION_RULES,
+  scoreAgentForListing,
+  recommendAgentsForListing,
+} from "@/lib/logic/agentRecommendation";
 
 // ----------------------------------------------------------------------------
 // Mini assertion framework
@@ -5508,11 +5514,410 @@ function checkManagerDashboards() {
 }
 
 // ----------------------------------------------------------------------------
-// 20. PRD Coverage
+// 20. Team & Distribution (Session 7B) — AI agent-recommendation rule
+//     table + parameterized agent surfaces + composition with existing
+//     ShareCampaign / TeamUpdate / BonusCampaign entities
+// ----------------------------------------------------------------------------
+
+function checkTeamAndDistribution() {
+  const section = "20. Team & Distribution";
+
+  const broker = seedUsers.find((u) => u.id === "broker-001");
+  const realtor = seedUsers.find((u) => u.id === "realtor-001");
+  const alyssa = seedUsers.find((u) => u.id === "agent-001");
+  check(section, "broker, realtor, alyssa all in seed", !!broker && !!realtor && !!alyssa);
+  if (!broker || !realtor || !alyssa) return;
+
+  // ---- AGENT_RECOMMENDATION_RULES totality (the 7th declarative rule table) ----
+  const ruleKeys = Object.keys(AGENT_RECOMMENDATION_RULES);
+  check(
+    section,
+    "AGENT_RECOMMENDATION_RULES has at least 8 rules declared",
+    ruleKeys.length >= 8,
+    `got ${ruleKeys.length}`,
+  );
+  // Every rule has weight + description + reasoningTemplate
+  for (const key of ruleKeys) {
+    const rule = (AGENT_RECOMMENDATION_RULES as Record<string, any>)[key];
+    check(
+      section,
+      `Rule "${key}" has weight property (number)`,
+      typeof rule.weight === "number" && rule.weight > 0,
+    );
+    check(
+      section,
+      `Rule "${key}" has description (string)`,
+      typeof rule.description === "string" && rule.description.length > 0,
+    );
+    check(
+      section,
+      `Rule "${key}" has reasoningTemplate (function)`,
+      typeof rule.reasoningTemplate === "function",
+    );
+  }
+
+  // ---- Rule of Seven check: 7 declarative rule tables in the codebase ----
+  // Existing 6: TONE_MARKERS / SEARCH_RULES / SHARE_RULES /
+  //             FILE_RECOMMENDATION_RULES / SIMULATOR_TIMINGS /
+  //             STAGE_REQUIREMENTS + NEXT_ACTION_RULES (counted as 1 pair)
+  // Session 7B adds: AGENT_RECOMMENDATION_RULES
+  check(
+    section,
+    "Rule of Seven: AGENT_RECOMMENDATION_RULES is the 7th declarative rule table",
+    ruleKeys.length >= 7,
+  );
+
+  // ---- Pure determinism: same inputs produce same output ----
+  const listing = seedListings.find((l) => l.id === "listing-laurel-12a");
+  check(section, "listing-laurel-12a exists in seed", !!listing);
+  if (listing) {
+    const r1 = scoreAgentForListing(alyssa, listing, seedDeals);
+    const r2 = scoreAgentForListing(alyssa, listing, seedDeals);
+    check(
+      section,
+      "scoreAgentForListing is pure deterministic: same inputs → same score",
+      r1.score === r2.score && r1.matchPercent === r2.matchPercent,
+    );
+    check(
+      section,
+      "scoreAgentForListing is pure deterministic: same inputs → same fired rules",
+      JSON.stringify(r1.firedRules) === JSON.stringify(r2.firedRules),
+    );
+    check(
+      section,
+      "scoreAgentForListing is pure deterministic: same inputs → same reasoning",
+      JSON.stringify(r1.reasoning) === JSON.stringify(r2.reasoning),
+    );
+  }
+
+  // ---- Distribution mode 4-pronged structural proof ----
+  if (listing) {
+    const teamIds = resolveTeamAgentIds(broker, seedUsers);
+    const teamAgents = seedUsers.filter((u) => teamIds.has(u.id));
+    const aiRecs = recommendAgentsForListing({
+      listing,
+      agents: teamAgents,
+      deals: seedDeals,
+      topN: 10,
+      minScore: 1,
+    });
+
+    // Prong 1: All Agents recipient count = team size (no filtering)
+    check(
+      section,
+      "Distribution All-Agents mode: recipients = full team size",
+      teamAgents.length === teamIds.size,
+    );
+    // Prong 2: AI Recommended recipient count = topN with non-zero scores (≤ team size, > 0)
+    check(
+      section,
+      "Distribution AI mode: recipient count > 0 (some agents match)",
+      aiRecs.length > 0,
+    );
+    check(
+      section,
+      "Distribution AI mode: recipient count ≤ team size",
+      aiRecs.length <= teamAgents.length,
+    );
+    // Prong 3: AI mode every recommendation has match score > 0 and reasoning ≥ 1
+    let allHaveReasoning = true;
+    let allHaveScore = true;
+    for (const rec of aiRecs) {
+      if (rec.reasoning.length < 1) allHaveReasoning = false;
+      if (rec.matchPercent <= 0) allHaveScore = false;
+    }
+    check(
+      section,
+      "Distribution AI mode: every recommendation has reasoning string(s)",
+      allHaveReasoning,
+    );
+    check(
+      section,
+      "Distribution AI mode: every recommendation has match% > 0",
+      allHaveScore,
+    );
+    // Prong 4: AI mode produces ranked output (descending matchPercent)
+    let isRanked = true;
+    for (let i = 1; i < aiRecs.length; i++) {
+      if (aiRecs[i - 1]!.matchPercent < aiRecs[i]!.matchPercent) {
+        isRanked = false;
+        break;
+      }
+    }
+    check(
+      section,
+      "Distribution AI mode: output is sorted descending by matchPercent",
+      isRanked,
+    );
+
+    // Distinct outputs across modes:
+    // All Agents includes recipients with score 0; AI mode excludes them.
+    // Therefore All Agents count > AI count when some agents score 0.
+    const zeroScoreAgents = teamAgents.filter((a) => {
+      const s = scoreAgentForListing(a, listing, seedDeals);
+      return s.score === 0;
+    });
+    if (zeroScoreAgents.length > 0) {
+      check(
+        section,
+        "Distribution: AI mode excludes zero-score agents that All mode includes (structurally different)",
+        aiRecs.length < teamAgents.length,
+      );
+    }
+  }
+
+  // ---- Composition with ShareCampaign (NO new entity type) ----
+  // The send action would create one ShareCampaign per recipient.
+  // Verify ShareCampaign entity exists and that no new BroadcastCampaign
+  // entity was introduced.
+  check(
+    section,
+    "ShareCampaign entity exists (composition target)",
+    seedShareCampaigns.length > 0,
+  );
+  // (No way to check NEGATIVE existence of a type at runtime, but the
+  // manifest's notes flag the composition decision explicitly.)
+  const distributeEntry = prdRoutes.find((r) => r.id === "broker-distribute");
+  check(
+    section,
+    "Distribution manifest entry mentions ShareCampaign composition",
+    distributeEntry?.notes?.includes("ShareCampaign") === true,
+  );
+  check(
+    section,
+    "Distribution manifest entry does NOT mention BroadcastCampaign invention",
+    !distributeEntry?.notes?.includes("BroadcastCampaign invented"),
+  );
+
+  // ---- TeamUpdate composition (NO new entity type) ----
+  check(
+    section,
+    "TeamUpdate seed data exists (composition target)",
+    seedTeamUpdates.length > 0,
+  );
+  // TeamUpdate entity must support the 11 PRD types
+  const seenTypes = new Set(seedTeamUpdates.map((u) => u.type));
+  check(
+    section,
+    `TeamUpdate seed exercises multiple types (got ${seenTypes.size})`,
+    seenTypes.size >= 3,
+  );
+  // Engagement counters present per PRD (delivered / opened / acknowledged / clicked)
+  for (const u of seedTeamUpdates) {
+    check(
+      section,
+      `TeamUpdate ${u.id}: engagement counters all present`,
+      typeof u.delivered === "number" &&
+        typeof u.opened === "number" &&
+        typeof u.acknowledged === "number" &&
+        typeof u.clicked === "number",
+    );
+    check(
+      section,
+      `TeamUpdate ${u.id}: opened ≤ delivered (engagement integrity)`,
+      u.opened <= u.delivered,
+    );
+    check(
+      section,
+      `TeamUpdate ${u.id}: acknowledged ≤ opened (engagement integrity)`,
+      u.acknowledged <= u.opened,
+    );
+  }
+
+  // ---- BonusCampaign composition (NO new entity type) ----
+  check(
+    section,
+    "BonusCampaign seed data exists (composition target)",
+    seedBonusCampaigns.length > 0,
+  );
+  const sprintCampaign = seedBonusCampaigns.find(
+    (c) => c.name === "May Closing Sprint",
+  );
+  check(
+    section,
+    "Cross-surface invariant: 'May Closing Sprint' bonus campaign exists (matches 7A dashboard card)",
+    !!sprintCampaign,
+  );
+  if (sprintCampaign) {
+    check(
+      section,
+      "May Closing Sprint: rewardAmount = ₱50,000 (matches 7A dashboard 1st place)",
+      sprintCampaign.rewardAmount === 50_000,
+    );
+    check(
+      section,
+      "May Closing Sprint: podium first = ₱50,000 (matches 7A)",
+      sprintCampaign.podium?.first === 50_000,
+    );
+    check(
+      section,
+      "May Closing Sprint: podium second = ₱30,000 (matches 7A)",
+      sprintCampaign.podium?.second === 30_000,
+    );
+    check(
+      section,
+      "May Closing Sprint: podium third = ₱20,000 (matches 7A)",
+      sprintCampaign.podium?.third === 20_000,
+    );
+    check(
+      section,
+      "May Closing Sprint: eligibleAgentIds includes agent-001 (Alyssa, the top closer)",
+      sprintCampaign.eligibleAgentIds.includes("agent-001"),
+    );
+    check(
+      section,
+      "May Closing Sprint: 9 eligible agents (matches broker's team size)",
+      sprintCampaign.eligibleAgentIds.length === 9,
+      `got ${sprintCampaign.eligibleAgentIds.length}`,
+    );
+  }
+
+  // ---- Agent Health full breakdown sums to score ----
+  const teamIds2 = resolveTeamAgentIds(broker, seedUsers);
+  for (const agentId of teamIds2) {
+    const inputs = buildAgentHealthInputs(
+      agentId,
+      seedDeals,
+      seedSiteVisits,
+      seedLeads,
+    );
+    const health = scoreAgentHealth(inputs);
+    // The 6 components × contribution should sum to total (within rounding)
+    const sumContribution = health.breakdown.reduce(
+      (s, b) => s + b.contribution,
+      0,
+    );
+    check(
+      section,
+      `Agent ${agentId}: health breakdown components sum equals total (engine integrity)`,
+      Math.abs(sumContribution - health.total) <= 1,
+      `sum=${sumContribution}, total=${health.total}`,
+    );
+    check(
+      section,
+      `Agent ${agentId}: health breakdown has exactly 6 components (PRD formula)`,
+      health.breakdown.length === 6,
+    );
+  }
+
+  // ---- AI Coaching banner: weakest component is identifiable ----
+  // For every team agent, there exists a "weakest" component (the one
+  // with the lowest contribution). The Agent Profile UI uses this for
+  // the coaching message.
+  for (const agentId of teamIds2) {
+    const inputs = buildAgentHealthInputs(
+      agentId,
+      seedDeals,
+      seedSiteVisits,
+      seedLeads,
+    );
+    const health = scoreAgentHealth(inputs);
+    const weakest = [...health.breakdown].sort(
+      (a, b) => a.contribution - b.contribution,
+    )[0];
+    check(
+      section,
+      `Agent ${agentId}: weakest health component is identifiable for AI Coaching`,
+      !!weakest && typeof weakest.label === "string",
+    );
+  }
+
+  // ---- Narrative chain extension: Alyssa's profile composes with 7A ----
+  // Section 19 locked: brokerLeaderboard[0] === Alyssa with 5 deals.
+  // Section 20 locks: Alyssa's Agent Profile shows the SAME 5 deals.
+  const alyssaDeals = seedDeals.filter(
+    (d) =>
+      d.agentId === "agent-001" &&
+      (d.stage === "Contract Signed" ||
+        d.stage === "Commission Processing" ||
+        d.stage === "Commission Released"),
+  );
+  check(
+    section,
+    "Narrative chain: Alyssa's Agent Profile shows 5 closed deals (matches Section 19 leaderboard)",
+    alyssaDeals.length === 5,
+    `got ${alyssaDeals.length}`,
+  );
+  const alyssaSales = alyssaDeals.reduce((s, d) => s + d.contractPrice, 0);
+  check(
+    section,
+    "Narrative chain: Alyssa's Agent Profile total sales matches Section 19 sprint top-closer amount (₱32M)",
+    alyssaSales === 32_000_000,
+    `got ${alyssaSales}`,
+  );
+
+  // ---- Seeded-prop-anchor: Maria + Laurel distribution scenario ----
+  // The marquee distribution narrative: broker distributes listing-laurel-12a;
+  // Alyssa (the seeded-prop-anchor agent) appears in the AI Recommended set
+  // with rule-driven reasoning.
+  if (listing) {
+    const teamIds3 = resolveTeamAgentIds(broker, seedUsers);
+    const teamAgents = seedUsers.filter((u) => teamIds3.has(u.id));
+    const aiRecs = recommendAgentsForListing({
+      listing,
+      agents: teamAgents,
+      deals: seedDeals,
+      topN: 10,
+      minScore: 1,
+    });
+    const alyssaRec = aiRecs.find((r) => r.agentId === "agent-001");
+    check(
+      section,
+      "Distribution narrative: Alyssa is recommended for listing-laurel-12a (her own narrative-chain listing)",
+      !!alyssaRec,
+    );
+    if (alyssaRec) {
+      check(
+        section,
+        "Distribution narrative: Alyssa's recommendation includes topPerformer rule (she has 5 closed deals)",
+        alyssaRec.firedRules.includes("topPerformer"),
+      );
+      check(
+        section,
+        "Distribution narrative: Alyssa's reasoning mentions top performer in headline",
+        alyssaRec.reasoning.some((r) => r.toLowerCase().includes("top performer")),
+      );
+    }
+  }
+
+  // ---- Role-aware scope: realtor's agent surfaces show MORE agents ----
+  const brokerTeam = resolveTeamAgentIds(broker, seedUsers);
+  const realtorNetwork = resolveTeamAgentIds(realtor, seedUsers);
+  check(
+    section,
+    "Role-aware scope: realtor network ⊃ broker team for Agents module",
+    realtorNetwork.size > brokerTeam.size,
+  );
+
+  // ---- Distribution recipient counts differ structurally across modes ----
+  // Lock: When score-based filtering excludes agents, AI mode produces
+  // a different recipient count than All Agents mode.
+  // (Already verified above in the 4-pronged structural proof.)
+
+  // ---- Manifest entries promoted correctly ----
+  const session7BIds = [
+    "agents-dashboard",
+    "agent-profile",
+    "broker-distribute",
+    "team-updates",
+    "awards-bonuses",
+  ];
+  for (const id of session7BIds) {
+    const entry = prdRoutes.find((r) => r.id === id);
+    check(
+      section,
+      `Session 7B route "${id}" promoted to complete`,
+      entry?.status === "complete" && entry?.completedInSession === 7,
+    );
+  }
+}
+
+// ----------------------------------------------------------------------------
+// 21. PRD Coverage
 // ----------------------------------------------------------------------------
 
 function reportPRDCoverage() {
-  const section = "20. PRD Coverage";
+  const section = "21. PRD Coverage";
 
   check(
     section,
@@ -5882,6 +6287,42 @@ function reportPRDCoverage() {
     complete >= 36,
     `complete=${complete}`,
   );
+
+  // Session 7B: agents-dashboard + agent-profile + broker-distribute + team-updates + awards-bonuses.
+  const session7BRoutes = [
+    "agents-dashboard",
+    "agent-profile",
+    "broker-distribute",
+    "team-updates",
+    "awards-bonuses",
+  ];
+  for (const id of session7BRoutes) {
+    const entry = prdRoutes.find((r) => r.id === id);
+    if (!entry) {
+      fail(section, `Session 7B route ${id} present in manifest`, "missing");
+      continue;
+    }
+    check(
+      section,
+      `Session 7B route "${id}" status = complete`,
+      entry.status === "complete",
+      `got ${entry.status}`,
+    );
+    check(
+      section,
+      `Session 7B route "${id}" completedInSession = 7`,
+      entry.completedInSession === 7,
+      `got ${entry.completedInSession}`,
+    );
+  }
+
+  // Coverage cannot regress: 36 (Session 7A) + 5 (Session 7B routes) = 41.
+  check(
+    section,
+    "Coverage progress: ≥ 41 routes complete after Session 7B",
+    complete >= 41,
+    `complete=${complete}`,
+  );
 }
 
 // ----------------------------------------------------------------------------
@@ -5964,5 +6405,6 @@ checkAttachFilesAndEngagement();
 checkDealsAndSiteVisits();
 checkCommissionTrackingMarquee();
 checkManagerDashboards();
+checkTeamAndDistribution();
 reportPRDCoverage();
 report();

@@ -28,10 +28,11 @@ import {
 
 /**
  * Builds AgentHealthInputs from raw seed data for a given agent.
- * Centralizes the shape mapping so manager dashboards and Agent Profile
- * read the same underlying numbers.
+ * Centralizes the shape mapping so manager dashboards AND Agent Profile
+ * read the same underlying numbers. Exported so the Agent Profile UI
+ * can render the same engine inputs.
  */
-function buildAgentHealthInputs(
+export function buildAgentHealthInputs(
   agentId: string,
   deals: Deal[],
   siteVisits: SiteVisit[],

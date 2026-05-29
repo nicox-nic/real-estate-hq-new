@@ -129,7 +129,7 @@ export const seedBonusCampaigns: BonusCampaign[] = [
       "agent-004",
       "agent-006",
     ],
-    podium: { first: 75_000, second: 50_000, third: 50_000 },
+    podium: { first: 50_000, second: 30_000, third: 20_000 },
     progressPercent: 65,
     targetAmount: 9, // 9 closings expected from team
     currentAmount: 6, // 6 closings so far this month
