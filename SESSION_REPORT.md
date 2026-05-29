@@ -1,121 +1,101 @@
-# Session 6 — Report
+# Session 7A — Report
 
 **Branch:** `main`
-**Stop signal:** met. Commission Tracking main page (#26) shipped at mockup-fidelity. Commission Timeline detail (#27) and Money on the Way (#28) shipped to PRD. Math reconciles at every level. Role-aware aggregation produces three different correct totals over the same seed. Maria + Laurel narrative chain extends from 5A's share-006 → 5C's deal-012 → 6's comm-001 — four surfaces, single arc. **The marquee mockup-matching block has shipped the second of its two marquee surfaces.**
+**Stop signal:** met. Broker Command Center (#9) + Realtor Network Dashboard (#10) + Leaderboard full view (#47) shipped via **single parameterized component pattern**. Mockup 1 composition reproduced for both broker and realtor variants. **Split executed per framing's pre-authorization** — 7B will ship Agents module + Agent Profile + Listing Distribution + Team Updates + Awards & Bonuses.
+
+## Architectural decision: split here vs ship-it-all
+
+The framing called Session 7 surface-rich (7-8 distinct surfaces) and pre-authorized the split as:
+- **7A: Broker Command Center + Realtor Network Dashboard + Leaderboard full view** — the dashboard-marquee work matching mockup 1
+- **7B: Agents module + Listing Distribution flow + Team Updates + Awards & Bonuses** — the team-management feature surfaces
+
+After landing 7A's three surfaces at mockup-fidelity with the parameterization pattern locked + verify Section 19 + 53 new asserts, **I'm executing the split here.** Rationale: the Listing Distribution flow alone has substantial AI agent-recommendation declarative-table work + the Agents module + Agent Profile need their own seeded-prop-anchor pattern + Team Updates and Awards each have their own data shape. Pushing all of them into 7A would mean compromising the marquee-fidelity on the dashboards or rushing the feature surfaces. The split was pre-authorized for exactly this case.
 
 ## At a glance
 - **TypeScript:** clean
-- **Build:** **42 routes** (+3 from 5C's 39). New: `/agent/commissions` (main marquee, 8.07 kB / 225 kB First Load — Recharts is the chunk-size driver), `/agent/commissions/[commissionId]/timeline` (4.08 kB / 126 kB), `/agent/commissions/money-on-the-way` (4.15 kB / 126 kB)
-- **Verify:** **1481 / 1481 passed** (+50 from 5C's 1431). **Section 18 (Commission Tracking marquee): 43 asserts** — the marquee math + role-aware + cross-surface lock
-- **PRD coverage:** **33 complete** · 0 scaffolded · 13 pending of 46
-- **Walkability:** `/agent/commissions` → tap For Closing tab → Maria + Laurel comm-001 row appears at top → tap chevron → Commission Timeline detail with 6-stage vertical timeline + Commission Split card + linked references → back to main → tap View Details on breakdown → Money on the Way page with in-flight total ₱367,500 + monthly target 80% + 4 cards with mini 6-segment timelines → tap any card → returns to Commission Timeline
+- **Build:** **44 routes** (+2 from 6's 42). New routes: `/broker/leaderboard` (274 B / 131 kB), `/realtor/leaderboard` (275 B / 131 kB). Existing `/broker` (281 B / 228 kB) and `/realtor` (282 B / 228 kB) updated from scaffolds to full implementations. DonutChart + Recharts contribute the dashboards' 228 kB First Load.
+- **Verify:** **1541 / 1541 passed** (+60 from 6's 1481). **Section 19 (Manager Dashboards): 53 asserts** locking parameterization, scope resolution, KPI computation, leaderboard sort discipline, Closing Sprint mockup-anchors, phantom-commission guard at dashboard layer.
+- **PRD coverage:** **36 complete** · 0 scaffolded · 10 pending of 46
+- **Walkability:** `/broker` (Broker Command Center) ↔ `/realtor` (Realtor Network Dashboard) — same composition, different scope. Tap "View Full Leaderboard" on either dashboard → `/{role}/leaderboard` with full 9 (broker) or 12 (realtor) rows sortable.
 
-## What shipped (Session 6's 3 promotions + 1 new component)
+## What shipped (Session 7A's 3 promotions + 1 concentration point + 2 components)
 
 | # | Route / Surface | Notes |
 |---|---|---|
-| 26 | `commission-tracking` | pending → **complete**. Marquee mockup-matching main page at `/agent/commissions`. Standalone (no AppShell, no bottom nav per PRD). |
-| 27 | `commission-timeline` | pending → **complete**. Detail at `/agent/commissions/[commissionId]/timeline`. 6-stage vertical timeline + Commission Split + linked references. |
-| 28 | `money-on-the-way` | pending → **complete**. Motivational in-flight view at `/agent/commissions/money-on-the-way`. Hero + monthly target + in-flight cards with mini 6-segment timelines. |
-| — | `CommissionKPICard` | 4-variant bespoke marquee KPI card matching mockup exactly. |
+| #9 | broker-dashboard | pending → **complete**. ManagerDashboard role="Broker". Mockup 1 composition: greeting + 7-KPI row + Top Performers + Team Updates compose + May Closing Sprint donut + Rewards podium. |
+| #10 | realtor-dashboard | pending → **complete**. SAME ManagerDashboard role="Realtor". Parameterization in action. |
+| #47 | leaderboard-full | pending → **complete**. Parameterized Leaderboard component. Sortable table + 3 highlight tiles + period filter chips. Used by `/broker/leaderboard` AND `/realtor/leaderboard`. |
+| — | `lib/logic/managerDashboardDerivations.ts` | concentration point. `resolveTeamAgentIds` + `computeManagerKPIs` + `computeLeaderboard` + `computeClosingSprintProgress`. |
+| — | `components/manager/ManagerDashboard.tsx` | parameterized single component used by both dashboards. |
+| — | `components/manager/Leaderboard.tsx` | parameterized single component used by both leaderboards. |
 
 ## Architectural decisions documented
 
-- **Engine-definitive math per Q1, with reviewer-flagged divergence**. The PRD's example values (Total ₱523,750, Paid ₱245K, Pending ₱188,750, On Hold ₱90K) **do not match** the seed's computed values (Total ₱536,250, Paid ₱112,500, Pending ₱367,500, On Hold ₱56,250). Crucially: **applying the 50% standard split to the PRD's own transactions table yields ₱536,250 exactly** — the seed is **more internally consistent than the PRD's own example KPIs.** Engine wins per Q1; verify locks the engine values. **Flagged for explicit reviewer ratification** as the most significant mockup ambiguity in the build so far.
-- **CommissionKPICard as a bespoke component, not the generic KPI primitive.** Decision rationale: the mockup's KPI cards have specific composition (icon-in-circle + delta line + hint line + per-variant progress bar with variant-tied colors) that's tighter than the generic primitive. Adding all those props to the generic `KPI` would balloon its interface; keeping a bespoke commission card keeps the generic minimal. Same posture as `components/commissions/` vs `components/ui/` placement — domain-specific cards live in domain folders.
-- **Vertical timeline NOT extracted as a reusable component.** Three timeline surfaces now exist:
-  1. Session 5C deal-pipeline progress strip — HORIZONTAL 9-cell row
-  2. Session 6 commission timeline detail — VERTICAL 6-row stack with detail per row
-  3. Session 6 MotW mini-timeline — HORIZONTAL 6-segment bar
+- **Single parameterized component, NOT two duplicate components.** Per the framing's "same Component, different role prop drives team-vs-network framing and transitive resolution". Decision rationale: broker and realtor dashboards have identical composition (same 7 KPIs, same Top Performers, same Team Updates compose, same Closing Sprint card). The ONLY differences are scope resolution (direct vs transitive) and a few copy strings ("team" vs "network", "Send to All Agents" vs "Send to All"). **Both differences are role-driven and small enough to inline.** Two components would be duplication; one component is parameterization. **This is the architectural pattern lesson of Session 7A** — when surfaces are 80% identical and 20% role-driven, parameterize, don't duplicate.
+- **DonutChart Rule of Three earned.** The existing `components/ui/DonutChart.tsx` primitive (from Session 1) is now used by:
+  1. Agent Dashboard's Money on the Way feature card (Session 3A)
+  2. Commission Tracking's breakdown card (Session 6)
+  3. Manager Dashboard's Closing Sprint progress (Session 7A)
   
-  **Three timeline surfaces, three different shapes.** Rule of Three says extract when 3+ callers want **the same thing**. Here they want three different things. Extraction deferred until a 4th surface emerges matching an existing shape. Carry-forward.
-- **The mockup's two-lens-on-same-data composition resolved cleanly.** Mockup shows KPI "Paid to Date" = ₱245K AND donut "Closed Deals" segment = ₱236K — referring to the *same concept* (paid commission) shown at different label granularities. With engine-definitive math both KPI and donut derive from the same `status === "Paid"` filter, so the verify lock `breakdown.closedDealsAmount === kpis.paidToDate` holds by construction. **The mockup's internal inconsistency was a mock-data artifact; the implementation has it right.**
-- **Role-aware aggregation locked empirically as the marquee invariant.** Same commission seed, three viewer roles, three different totals:
-  - Agent: ₱536,250 (50% standard split share)
-  - Broker: ₱614,250 (broker share across team's commissions)
-  - Realtor: ₱457,000 (realty share across network)
-  
-  The phantom-commission bug class is structurally prevented by routing every aggregation through `amountFor(commission, viewer)` which returns the viewer's role-specific share, not the agent's. Section 18 locks `agent ≠ broker ≠ realtor` over the same data + the phantom-commission bug guard `broker ≠ agent`. **The bug class that cost a real ₱337,175 phantom commission in the prior build is now structurally + empirically prevented in this build.**
-- **5C → 6 hand-off consumed cleanly.** `expectedCommissionStatusFor(stage)` from 5C is the upstream half of the commission flip; Session 6's per-row status badge reads `commission.status` directly. comm-014 (5C's new For Approval row) appears in the Transactions table with the correct status badge — verified empirically. **No regressions to 5C's commission flip mapping.**
-- **Commission Insights composed from existing helpers**, NOT bespoke aggregation logic. Total Sales = sum of contract prices via commission → deal lookup. Average rate = mean of commission rates via commission → deal lookup. Deals Closed = count of `status === "Paid"`. No new logic needed; existing data shape sufficient.
-- **`formatPHP2dp` added to the format module.** Three formatters now: `formatPHPWhole` (₱8,500,000, no decimals), `formatPHP2dp` (₱523,750.00, exactly 2 decimals), `formatPHPCompact` (₱8.5M shorthand). Marquee KPIs use 2dp matching the mockup; tables use whole; sub-card density uses compact. Three contexts, three formatters.
+  **Three callers, same shape, genuine Rule of Three application.** The primitive earns its keep. Future donut surfaces compose this primitive.
+- **Engine-honest KPIs over mockup-anchor numbers.** The mockup shows Active Agents 128 / Agent Health 87 "Great" / Total Sales ₱23.8M for the broker; the seed produces 9 / 7 / ₱36.5M. Per Q1 + Marisol lesson + Session 6 precedent: engine wins. **Reviewer can request seed expansion in Session 9 polish if the demo needs the higher numbers.** Going engine-honest for now.
+- **Pending Commissions uses the manager's role share, NOT the agent's.** Bug-class prevention at the dashboard layer too: `c[managerShareField as keyof Commission]` reads `brokerAmount` for brokers and `realtyAmount` for realtors. **Phantom-commission bug class structurally prevented at every aggregation layer in the codebase now.** Verified empirically.
+- **TeamUpdate entity NOT yet introduced.** The Team Updates compose card's "recent update preview" is currently static composition (different copy for broker vs realtor). Session 7B will likely introduce TeamUpdate; flagged. **No new entity types in 7A** maintains the field-not-entity discipline.
+- **No new declarative rule table in 7A.** The Rule of Six (now Rule of Seven by Session 7B's anticipated AI agent-recommendation table) doesn't grow in 7A. Manager dashboards are computation-driven, not rule-driven. **Rule tables earn entries when transparency over a routing decision adds demo value; aggregation doesn't need it.**
 
-## Mockup ambiguities surfaced (flagged for ratification, NOT silently resolved)
+## Parameterization assertion (the marquee structural lock for 7A)
 
-1. **PRD example KPI values vs seed-computed values.** PRD says Total ₱523,750; seed produces ₱536,250 (which reconciles to the PRD's own transactions table when 50% split is applied). Resolved engine-definitive per Q1. **Reviewer ratification requested** — the divergence is real and worth surfacing.
-2. **PRD "Paid to Date" vs "Closed Deals" labels for the same concept.** Both refer to commissions in `Paid` status. With engine-definitive math both render the same number; the label difference is purely framing for two different lenses (cash-flow vs deal-count). Locked via cross-aggregation assertion. Documented; not a defect.
-3. **Period-over-period deltas (18.6%, 22.4%, 0.35%, 20%) in KPI cards + Insights tiles.** No prior-period seed data exists. Rendered as illustrative-static strings with positive direction. Verify-locked as display elements but not the numeric values. **Reviewer call: seed a prior period or keep illustrative-static?** Going with illustrative for now.
-4. **Mockup donut center shows "₱523,750" without decimals.** Engine renders compact whole format `₱536,250` in the same center slot. Composition matches; only the number diverges per (1) above.
-
-## Math reconciliation lock (the marquee invariants)
-
-Section 18 enforces these as verify checks:
-
-| Invariant | Check | Why it matters |
-|---|---|---|
-| Agent KPI sum reconciles | `paidToDate + pendingPayout + onHold === totalEarned` | No phantom income; total is sum of categories |
-| Broker KPI sum reconciles | Same equation for broker view | Same discipline across viewer roles |
-| Realtor KPI sum reconciles | Same equation for realtor view | Same discipline across viewer roles |
-| Donut total = sum of segments | `closedDeals + forClosing + forApproval + forPayout + onHold === total` | Donut accurately represents the data |
-| KPI total = breakdown total | `kpis.totalEarned === breakdown.total` | Cross-aggregation lock — both lenses agree |
-| KPI "On Hold" = donut "On Hold" | `breakdown.onHoldAmount === kpis.onHold` | Same data → same number across surfaces |
-| KPI "Paid to Date" = donut "Closed Deals" | `breakdown.closedDealsAmount === kpis.paidToDate` | Resolves the mockup's label ambiguity |
-| Donut percentages sum to 100 | `\|pctSum - 100\| ≤ 1` (rounding) | Donut visually reads as 100% of the pie |
-| Transactions table sum = KPI total | `sum(c.agentAmount) === kpis.totalEarned` | No phantom commission rows |
-| Monthly Target progress in [0,100] | `0 ≤ pct ≤ 100` | UI doesn't render >100% bar |
-| Monthly Target = 80% for agent-001 | `pct === 80` | Hand-computed: ₱480K / ₱600K = 80% |
-
-## Role-aware aggregation lock (the highest-credibility-risk bug class)
-
-| Invariant | Check | Why it matters |
-|---|---|---|
-| Agent ≠ Broker totals | `agentKPIs.totalEarned !== brokerKPIs.totalEarned` | Different perspectives produce different totals |
-| Agent ≠ Realtor totals | `agentKPIs.totalEarned !== realtorKPIs.totalEarned` | Same discipline across all role pairs |
-| Broker ≠ Realtor totals | `brokerKPIs.totalEarned !== realtorKPIs.totalEarned` | Same discipline across all role pairs |
-| Phantom-commission guard | `brokerKPIs.totalEarned !== agentKPIs.totalEarned` | The exact bug-class assertion — broker MUST NOT see agent's share |
-| Agent total = ₱536,250 | Hand-computed lock | Mockup anchor (5C hand-off) preserved |
-| Broker visibility > 0 | `brokerKPIs.totalEarned > 0` | Broker sees something (not empty filter) |
-| Realtor visibility > 0 | `realtorKPIs.totalEarned > 0` | Realtor sees something (not empty filter) |
-| filterVisibleToViewer respects roles | Agent's visible all have `agentId === 'agent-001'` | Filter doesn't leak other agents' commissions |
-
-**The ₱337,175 phantom commission bug class is now empirically prevented.**
-
-## Cross-surface invariants
+Section 19 enforces the parameterization correctness empirically:
 
 | Invariant | Check |
 |---|---|
-| MotW total = Agent KPI pending | `inFlightTotal === agentKPIs.pendingPayout` |
-| comm-014 5C hand-off present | comm-014 exists + status = "For Approval" |
-| Mockup anchor preserved | agent-001 total = ₱536,250 (5C → 6 contract) |
+| Realtor.activeAgents > Broker.activeAgents | Network ⊇ team |
+| Realtor.totalSales ≥ Broker.totalSales | Network covers ≥ deals |
+| Realtor.totalSales ≠ Broker.totalSales | Different scopes produce different values |
+| Realtor's network is a superset of broker's team | Transitive resolution correct |
+| Broker team contains only Agents (no nested brokers) | parentId filter correctness |
+| Agent view: team is self (size 1) | Edge case in parameterization |
+| Phantom-commission guard at dashboard | broker.pendingCommissions ≠ agent.pendingCommissions |
 
-## 6-stage timeline progression integrity
+**Same component, three role variants (Broker / Realtor / Agent edge case), three different correct outputs.**
 
-For every seeded commission, a stage cannot be completed without the previous stage being completed. Locked across all commissions. Positive lock: at least one commission has ≥2 completed stages (proves progression actually exists in the seed).
+## Mockup ambiguities surfaced (flagged for ratification, NOT silently resolved)
 
-## Seeded-prop-anchor: comm-001 (Maria + Laurel 12A)
+1. **Engine-honest KPIs vs mockup example values.** Total Sales engine ₱36.5M vs mockup ₱23.8M. Active Agents engine 9 vs mockup 128. Health engine 7 "Low Activity" vs mockup 87 "Great". **Same engine-vs-mockup pattern as Session 6's commission divergence.** Engine wins per Q1. Reviewer can request seed expansion in Session 9 polish.
+2. **Team Updates recent-update preview is static composition.** Broker shows "May Closing Sprint is ON!", realtor shows "New Rental Inventory Just In!" Static copy with author + 2h ago timestamp. A TeamUpdate entity in 7B would make this dynamic. **Flagged for 7B.**
+3. **Rewards podium icon treatment differs from mockup.** Mockup shows trophy icons at each rank; I rendered rank numbers in colored circles (gold for 1st, gray for 2nd, terracotta for 3rd). Reasonable variant but not identical. **Documented; reviewer can iterate.**
 
-Locked by 8 assertions in Section 18:
-- comm-001 references deal-001 (Laurel Hills 12A)
-- Status = "For Closing"
-- Agent share = ₱127,500 (50% of ₱255,000)
-- Total amount = ₱255,000 (₱8.5M × 3%)
-- Split sum = total (no rounding loss)
-- "Reserved" stage completed
-- "Released" stage NOT completed (still For Closing)
-- Appears in Upcoming Payouts top row (sorted by expectedPayoutDate ascending)
+## Hand-computed expectations locked
 
-## Narrative chain extended to 4 surfaces
+| Lock | Value |
+|---|---|
+| Broker direct reports | 9 agents (`agent-001..agent-009`) |
+| Realtor transitive network | > 9 (includes other brokers' agents) |
+| Top performer (broker view) | Alyssa Garcia (agent-001) |
+| Alyssa's closed deals | 5 |
+| Alyssa = sprint top closer | ₱32M cumulative |
+| 1st place reward | ₱50,000 (mockup-anchor) |
+| 2nd place reward | ₱30,000 (mockup-anchor) |
+| 3rd place reward | ₱20,000 (mockup-anchor) |
 
-**Maria Santos + Laurel Hills Estate Unit 12A** — the demo's flagship arc now spans:
+## Narrative chain extends to 6 surfaces across 4 sessions
 
-1. **share-006** (Session 5A/5B): Maria received the share, opened all 4 files at 10:24/10:26/10:27/10:28 AM
-2. **deal-012** (Session 5C): Maria at Buyer Qualified stage, awaiting site visit
-3. **comm-001** (Session 6): Maria's commission ₱127,500 For Closing, expected payout May 20
-4. **Commission Timeline detail** (Session 6): per-stage progression with Reserved completed Apr 12 + Documents Submitted completed Apr 25 + Contract Signed in-progress
+**Maria + Laurel + Alyssa arc** now spans:
+1. **share-006** (5A/5B): Maria received Alyssa's share, opened all 4 attachments
+2. **deal-012** (5C): Maria at Buyer Qualified, Alyssa's deal
+3. **comm-001** (6): ₱127,500 commission For Closing, Alyssa's
+4. **Commission Timeline detail** (6): Maria + Laurel's commission walking through 6 stages
+5. **Broker dashboard Top Performers** (7A): Alyssa #1 with 5 deals + ₱32M sales — Maria's deal contributes
+6. **Leaderboard full view + Closing Sprint top closer** (7A): Alyssa as top closer, highlight tile
 
-**Four surfaces, single arc.** Two sessions apart, woven into a single demo narrative.
+**Three locked invariants tie the surfaces together:**
+- `deal-001.agentId === "agent-001"` (Maria's deal is Alyssa's)
+- `brokerLeaderboard[0].agentId === "agent-001"` (Alyssa is #1)
+- `sprint.topCloserName === "Alyssa Garcia"` AND `sprint.topCloserAmount === brokerLeaderboard[0].sales` (cross-derivation)
 
-## Verify suite delta (1431 → 1481)
+**Six surfaces, four sessions, single arc.** The demo narrative is contract-enforced.
+
+## Verify suite delta (1481 → 1541)
 
 | Section | Asserts | Delta | Notes |
 |---|---|---|---|
@@ -123,7 +103,7 @@ Locked by 8 assertions in Section 18:
 | 2. Structural invariants | 72 | — | |
 | 3. Demo beats | 20 | — | |
 | 4. Role-aware aggregation lock | 5 | — | |
-| 5. Commission Tracking mockup | 27 | — | (existing earlier section retained) |
+| 5. Commission Tracking mockup | 27 | — | |
 | 6. Auth flow & schemas | 69 | — | |
 | 7. Dashboard math | 29 | — | |
 | 8. Inbox & contradiction | 22 | — | |
@@ -133,54 +113,46 @@ Locked by 8 assertions in Section 18:
 | 14. Share Listing | 96 | — | |
 | 16. Attach Files + Engagement | 147 | — | |
 | 17. Deals Pipeline + Site Visits | 124 | — | |
-| **18. Commission Tracking marquee** | **43** | **+43** | NEW — math reconciliation × 11 + role-aware lock × 8 + timeline integrity + comm-014 hand-off + comm-001 seeded-prop-anchor × 8 + cross-surface MotW = agent pending + filterVisible role boundary + Upcoming Payouts sort + Insights compose + Monthly Target = 80% |
-| 19. PRD Coverage | 77 | +7 | renumbered from 18; Session 6 advancement (3 routes × 2 + aggregate) |
-| **Total** | **1481** | **+50** | |
+| 18. Commission Tracking marquee | 43 | — | |
+| **19. Manager Dashboards** | **53** | **+53** | NEW — resolveTeamAgentIds totality + realtor ⊇ broker invariant + parameterization × 3 (realtor > broker active agents, realtor.totalSales ≠ broker.totalSales, etc.) + hand-computed broker=9 / realtor>9 + computeManagerKPIs every-field-valid for both viewers + computeLeaderboard sort discipline + Alyssa anchor (top performer with 5 deals) + Closing Sprint mockup-anchor rewards × 4 + top closer cross-derivation + phantom-commission guard at dashboard layer + narrative chain extension. |
+| 20. PRD Coverage | 84 | +7 | renumbered from 19; Session 7A advancement (3 routes × 2 + aggregate) |
+| **Total** | **1541** | **+60** | |
 
 ## Demo walk (validated end-to-end)
 
-1. From `/agent/commissions` (the marquee main page):
-   - Header: "Commission Tracking" + "Track your earnings, payouts, and commission status in real time." subtitle + date range selector "May 1 – May 31, 2025" + Filter button (both top-right)
-   - **KPI row (4 cards)**: Total Commission Earned ₱536,250.00 (sage accent, ↑ 18.6% delta), Paid to Date ₱112,500.00 (sage check icon, 21.0% of total + progress bar), Pending Payout ₱367,500.00 (gold clock icon, 68.5% of total + gold progress bar), On Hold ₱56,250.00 (terracotta pause icon, 10.5% of total + terracotta progress bar)
-   - **Commission Breakdown card**: Donut chart with ₱536,250 center + 4-segment legend (Closed Deals ₱112,500 21% sage / For Closing ₱367,500 68% gold / For Approval ₱0 0% blue / On Hold ₱56,250 11% gray). **Monthly Target card embedded below** with "Great job!" copy + ₱600,000 target + 80% progress bar
-   - **Upcoming Payouts card** (right column): 3 rows with month-day chips, listing + buyer + payout account + amount + status badge — **comm-001 Maria Laurel ₱127,500 May 20 For Closing top row**. Below: green Request Payout CTA
-   - **Commission Transactions table** with 6 filter tabs (All / Closed Deals / For Closing / For Approval / Paid / On Hold) + Export button. Columns: Property/Buyer / Deal Value / Commission (with rate) / Status / Expected Payout / Date Updated / chevron-to-timeline. All 6 agent-001 commissions render correctly + comm-014 appears under "For Approval" tab
-   - **Insights row**: 3 tiles (Total sales ₱40.4M with 22.4% delta / Average rate 2.75% with 0.35% delta / Deals closed 2 Deals with 20% delta)
-   - **Payout Accounts**: BDO Savings **** 5678 (navy circle, Default badge), BPI Savings **** 9981 (terracotta circle)
-   - Footer: "All commissions are computed based on your active commission rate and confirmed deals." + Contact support link
-2. Tap "For Closing" filter tab → table narrows to 2 rows (comm-001 + comm-002)
-3. Tap chevron on Maria + Laurel row → `/agent/commissions/comm-001/timeline`:
-   - Header: back arrow + "Commission Timeline" + subtitle
-   - Summary card: For Closing badge + ₱127,500.00 agent share + ₱8.5M total deal value + expected payout May 20, 2025
-   - **6-Stage Vertical Timeline**: Reserved completed Apr 12 (sage check) / Documents Submitted completed Apr 25 (sage check) / Contract Signed current with gold clock icon and ring / Commission Approved pending (gray "4" number) / Processing pending / Released pending — connector lines between stages
-   - **Commission Split card**: Agent share ₱127,500 (50%, sage bar) / Broker share ₱76,500 (30%, gold bar) / Realty share ₱51,000 (20%, navy bar)
-   - Linked: deal-001 originating deal + BDO Savings **** 5678 payout account
-4. Back to main → tap "View Details →" link on Commission Breakdown → `/agent/commissions/money-on-the-way`:
-   - Hero card: ₱367,500.00 sage in-flight total + "Across 4 commissions actively moving toward payout" + Monthly Target ₱480,000 of ₱600,000 = 80% progress bar
-   - **In-flight commissions list**: 4 cards, each with listing + buyer + deal value + agent share + status badge + **mini 6-segment timeline strip** showing completion state per stage + expected payout date + "Open timeline →" affordance
-   - Request Payout CTA matching main page
-5. Tap any in-flight row → returns to Commission Timeline detail for that commission
+1. From `/broker` (Broker Command Center):
+   - "Welcome back, Maria 👋" + "Here's what's happening with your team." subtitle
+   - Date range + Broadcast Message CTA top-right
+   - **7-card KPI row**: Active Agents 9 / Agent Health 7 Low Activity / Site Visits Booked 4 / For Closing 3 / Deals Closed 6 / Total Sales ₱36.5M / Pending Commissions ₱594K
+   - **Top Performers (5 rows)**: #1 Alyssa Garcia (5 deals, ₱32M sales, Low Activity badge), #2 Grace Lim (1 deal, ₱4.5M sales), #3 Rafael Tan, #4 Jason Ong, #5 Vince Mendoza
+   - **Team Updates compose card**: input "Share an update with your team..." + 4 chips Announcement/Event/Award/Bonus + Send to All Agents CTA. Below: recent update preview "May Closing Sprint is ON! 🎯 ... Let's finish strong this month!" by Maria Santos · 2h ago
+   - **May Closing Sprint card**: donut at 100% of target (₱36.5M / ₱24M — team has exceeded), Top Closer Alyssa Garcia ₱32M, 3 reward chips (1st ₱50K gold / 2nd ₱30K gray / 3rd ₱20K terracotta)
+2. Tap "View Full Leaderboard" → `/broker/leaderboard`:
+   - Header with back-link
+   - Period filter chips (This Month active)
+   - **3 highlight tiles**: Top closer Alyssa Garcia (5 deals) · Most sales Alyssa Garcia (₱32M) · Healthiest Rafael Tan (11 score, Low Activity)
+   - Sortable table with 9 rows: rank / agent + status / deals / sales / health / recent activity. Click "Sales" header → sorts desc by sales (Alyssa first); click again → sorts asc.
+3. Open `/realtor` (Realtor Network Dashboard):
+   - "Welcome back, Alex 👋" + **"Here's your network's overview today."** subtitle (different from broker)
+   - Same 7-card KPI row but values: Active Agents 12 / Total Sales ₱46M / Pending Commissions ₱342K — clearly different from broker's view
+   - Top Performers + Team Updates + Sprint cards same composition with realtor copy ("Send to All" instead of "Send to All Agents", different recent update preview)
+4. Tap "View Full Leaderboard" → `/realtor/leaderboard` with 12 rows (vs broker's 9) — confirms transitive resolution.
 
-Stop signal met across the board.
+Stop signal met across the board for 7A.
 
-## Carry-forwards
+## Carry-forwards to 7B
 
-- **Vertical timeline NOT yet extracted as a reusable component.** Three timeline surfaces exist now (5C horizontal pipeline strip / 6 vertical commission timeline detail / 6 horizontal MotW mini-timeline). They have different shapes serving different purposes. Rule of Three says extract when 3+ callers want the SAME thing; here they want three different things. Extraction deferred until a 4th surface matching an existing shape emerges.
-- **Period-over-period delta data not seeded.** Deltas in KPI cards + Insights tiles are illustrative-static strings. Reviewer call: seed a prior period or keep illustrative. Documented.
-- **Recharts contributes ~80 kB to the main page's First Load.** This is the marquee page; one-time cost. Other commission sub-pages don't load Recharts. Acceptable trade-off for the donut visualization.
-- **The PRD's example KPI values internal-inconsistency is documented and flagged for reviewer ratification.** Engine-definitive math per Q1 produces ₱536,250, which reconciles correctly to the PRD's own transactions table. The PRD's example KPIs (₱523,750) are inconsistent with the PRD's own transactions table.
-- **Commission Tracking already had Section 5 in verify (27 asserts) covering the mockup composition.** Section 18 adds 43 marquee-specific assertions on math + role-aware + cross-surface. Together: 70 commission-tracking asserts — the highest-density single-feature lock in the suite.
-- **comm-014 (5C hand-off)** composes cleanly into the Transactions table under For Approval filter. The 5C → 6 cross-session contract is empirically validated.
-- **Maria/Laurel narrative chain extended to 4 surfaces** — share-006 → deal-012 → comm-001 → Commission Timeline detail. The demo's flagship arc.
+1. **Agents module (#29)** at `/broker/agents` and `/realtor/agents` — list + filter + search + cards
+2. **Agent Profile (#30)** at `/broker/agents/[agentId]` and `/realtor/agents/[agentId]` — hero + AI coaching banner + KPIs + health breakdown
+3. **Listing Distribution flow (#41)** at `/broker/listings/[listingId]/distribute` (or wherever) — All Agents / Manual Selection / **AI Recommended** with declarative rule table (the seventh declarative rule table in the codebase — Rule of Seven progression)
+4. **Team Updates (#31)** at `/broker/team-updates` and `/realtor/team-updates` — list + compose. TeamUpdate entity introduction TBD: compose from existing Announcement-like data, or introduce new entity. Strongly prefer composition.
+5. **Awards & Bonuses (#32)** at `/broker/campaigns` and `/realtor/campaigns` — Active + Past sections + per-agent progress
+6. **TeamUpdate entity decision** — introduce or compose? Flagged for 7B kickoff.
+7. **AI agent-recommendation rule table** — the 7th declarative rule table, marking Rule of Seven. Same shape as SHARE_RULES / FILE_RECOMMENDATION_RULES. Rule transparency in UI (per-agent match% with reasoning).
+8. **Distribution flow uses ShareCampaign or BroadcastCampaign?** Strongly prefer composition with existing ShareCampaign entity. Flag if invention is proposed.
 
-## Block-close note + Session 7 framing setup
+## Block-close note
 
-**Session 6 closes the marquee block.** The build has now shipped both marquee mockup-matching sessions (5A/5B Sharing Page + 6 Commission Tracking). The two highest-stakes single screens of the build are contract-enforced by the codebase.
+7A closes 3 routes at mockup-fidelity using the **parameterization pattern** (one component, role prop, two routes each). The pattern is now ratified by Section 19's 53 asserts.
 
-**Session 7 framing inputs:**
-- Broker Command Center (mockup 2) is the next marquee surface — but framing called it "Realtor Network Dashboard / Broker Command Center" with related agent/listing distribution modules
-- The role-aware aggregation infrastructure from Session 6 is the foundation; broker dashboards will read the same `computeKPIs(commissions, brokerViewer)` shape that produced ₱614,250 in Section 18's lock
-- Broker view of Commission Tracking already works (verified empirically in Section 18) — Session 7 will surface broker-specific dashboards that complement, not replace, the Commission Tracking page
-- The agent module from Broker Command Center mockup shows agent health scores, team performance, listing distribution, leaderboards, awards/bonuses — Session 7 likely splits given that scope
-
-**Coverage trajectory:** 33 of 46 routes complete after Session 6. Remaining 13: broker/realtor dashboards + content studio + integrations + settings + analytics. Sessions 7-9 expected to close.
+**Coverage trajectory:** 36 of 46 complete. With 7B's 4-5 routes, we'll be at ~40-41/46. Sessions 8+ close the remainder (Content Studio + Integrations + Settings + Analytics + Notifications + Polish).

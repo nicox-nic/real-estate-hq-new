@@ -211,6 +211,12 @@ import {
   isUpcomingStatus,
   partitionSiteVisits,
 } from "@/lib/logic/siteVisitDerivations";
+import {
+  resolveTeamAgentIds,
+  computeManagerKPIs,
+  computeLeaderboard,
+  computeClosingSprintProgress,
+} from "@/lib/logic/managerDashboardDerivations";
 
 // ----------------------------------------------------------------------------
 // Mini assertion framework
@@ -5184,11 +5190,329 @@ function checkCommissionTrackingMarquee() {
 }
 
 // ----------------------------------------------------------------------------
-// 19. PRD Coverage
+// 19. Manager Dashboards (Broker + Realtor) — Session 7A
+// ----------------------------------------------------------------------------
+
+function checkManagerDashboards() {
+  const section = "19. Manager Dashboards";
+
+  const broker = seedUsers.find((u) => u.id === "broker-001");
+  const realtor = seedUsers.find((u) => u.id === "realtor-001");
+  check(section, "broker-001 user exists", !!broker);
+  check(section, "realtor-001 user exists", !!realtor);
+  if (!broker || !realtor) return;
+
+  const refIso = "2025-05-29T08:00:00.000Z";
+
+  // --- resolveTeamAgentIds: broker direct vs realtor transitive ---
+  const brokerTeam = resolveTeamAgentIds(broker, seedUsers);
+  const realtorNetwork = resolveTeamAgentIds(realtor, seedUsers);
+
+  check(
+    section,
+    "Broker team is non-empty",
+    brokerTeam.size > 0,
+    `got ${brokerTeam.size}`,
+  );
+  check(
+    section,
+    "Realtor network is non-empty",
+    realtorNetwork.size > 0,
+    `got ${realtorNetwork.size}`,
+  );
+
+  // Realtor network ⊇ broker team WHEN the broker reports to the realtor
+  // (broker-001 has parentId === realtor-001 in seed)
+  if (broker.parentId === realtor.id) {
+    let brokerTeamSubsetOfRealtor = true;
+    for (const id of brokerTeam) {
+      if (!realtorNetwork.has(id)) brokerTeamSubsetOfRealtor = false;
+    }
+    check(
+      section,
+      "Realtor's network is a superset of broker's team (transitive resolution)",
+      brokerTeamSubsetOfRealtor,
+    );
+  }
+
+  // Broker team contains only Agents (no nested brokers/realtors)
+  for (const id of brokerTeam) {
+    const u = seedUsers.find((x) => x.id === id);
+    check(
+      section,
+      `Broker team member ${id} is an Agent (no nested management)`,
+      u?.role === "Agent",
+    );
+  }
+
+  // --- computeManagerKPIs over the broker view ---
+  const brokerKPIs = computeManagerKPIs({
+    manager: broker,
+    allUsers: seedUsers,
+    deals: seedDeals,
+    commissions: seedCommissions,
+    siteVisits: seedSiteVisits,
+    leads: seedLeads,
+    referenceIso: refIso,
+  });
+  check(
+    section,
+    "Broker KPIs: activeAgents == team size",
+    brokerKPIs.activeAgents === brokerTeam.size,
+    `got ${brokerKPIs.activeAgents}, team=${brokerTeam.size}`,
+  );
+  check(
+    section,
+    "Broker KPIs: agentHealthScore between 0 and 100",
+    brokerKPIs.agentHealthScore >= 0 && brokerKPIs.agentHealthScore <= 100,
+    `got ${brokerKPIs.agentHealthScore}`,
+  );
+  check(
+    section,
+    "Broker KPIs: agentHealthLabel is one of 4 canonical labels",
+    [
+      "Top Performer",
+      "Active",
+      "Needs Coaching",
+      "Low Activity",
+    ].includes(brokerKPIs.agentHealthLabel),
+    `got ${brokerKPIs.agentHealthLabel}`,
+  );
+  check(
+    section,
+    "Broker KPIs: siteVisitsBooked >= 0",
+    brokerKPIs.siteVisitsBooked >= 0,
+  );
+  check(
+    section,
+    "Broker KPIs: forClosing >= 0",
+    brokerKPIs.forClosing >= 0,
+  );
+  check(
+    section,
+    "Broker KPIs: dealsClosed >= 0",
+    brokerKPIs.dealsClosed >= 0,
+  );
+  check(
+    section,
+    "Broker KPIs: totalSales >= 0",
+    brokerKPIs.totalSales >= 0,
+  );
+  check(
+    section,
+    "Broker KPIs: pendingCommissions >= 0",
+    brokerKPIs.pendingCommissions >= 0,
+  );
+
+  // --- computeManagerKPIs over the realtor view ---
+  const realtorKPIs = computeManagerKPIs({
+    manager: realtor,
+    allUsers: seedUsers,
+    deals: seedDeals,
+    commissions: seedCommissions,
+    siteVisits: seedSiteVisits,
+    leads: seedLeads,
+    referenceIso: refIso,
+  });
+
+  // ---- Parameterization assertion (THE marquee structural assertion for 7A):
+  //      same Component, different role prop produces correct different scope ----
+  check(
+    section,
+    "Parameterization: realtor.activeAgents > broker.activeAgents (network ⊇ team)",
+    realtorKPIs.activeAgents > brokerKPIs.activeAgents,
+    `realtor=${realtorKPIs.activeAgents}, broker=${brokerKPIs.activeAgents}`,
+  );
+  check(
+    section,
+    "Parameterization: realtor.totalSales >= broker.totalSales (network covers more deals)",
+    realtorKPIs.totalSales >= brokerKPIs.totalSales,
+  );
+  check(
+    section,
+    "Parameterization: realtor and broker compute different totalSales (different scopes)",
+    realtorKPIs.totalSales !== brokerKPIs.totalSales,
+  );
+
+  // --- Hand-computed expectations ---
+  // Broker-001 has 9 agents in seed (agent-001..agent-009)
+  check(
+    section,
+    "Hand-computed: broker-001 has exactly 9 direct-report agents",
+    brokerTeam.size === 9,
+    `got ${brokerTeam.size}`,
+  );
+  // Realtor network includes those 9 + agents under realtor's other child
+  // brokers — should be larger than 9
+  check(
+    section,
+    "Hand-computed: realtor-001 network size > 9",
+    realtorNetwork.size > 9,
+    `got ${realtorNetwork.size}`,
+  );
+
+  // --- computeLeaderboard ---
+  const brokerLeaderboard = computeLeaderboard({
+    manager: broker,
+    allUsers: seedUsers,
+    deals: seedDeals,
+    siteVisits: seedSiteVisits,
+    leads: seedLeads,
+    referenceIso: refIso,
+  });
+  check(
+    section,
+    "Leaderboard returns one row per team agent",
+    brokerLeaderboard.length === brokerTeam.size,
+    `got ${brokerLeaderboard.length}, team=${brokerTeam.size}`,
+  );
+  // Sort: deals desc; first row has the most deals
+  for (let i = 1; i < brokerLeaderboard.length; i++) {
+    const prev = brokerLeaderboard[i - 1]!;
+    const cur = brokerLeaderboard[i]!;
+    check(
+      section,
+      `Leaderboard row ${i}: prev.deals >= cur.deals (sort discipline)`,
+      prev.deals >= cur.deals,
+    );
+  }
+  // Top performer is agent-001 (Alyssa Garcia) — she has the most closed deals
+  check(
+    section,
+    "Top performer: agent-001 (Alyssa Garcia) leads with 5 closed deals",
+    brokerLeaderboard[0]?.agentId === "agent-001" &&
+      brokerLeaderboard[0]?.deals === 5,
+    `got ${brokerLeaderboard[0]?.agentId} with ${brokerLeaderboard[0]?.deals} deals`,
+  );
+  check(
+    section,
+    "Top performer: Alyssa Garcia has the highest sales total too",
+    (brokerLeaderboard[0]?.sales ?? 0) > 0 &&
+      brokerLeaderboard.every((r) => r.sales <= (brokerLeaderboard[0]?.sales ?? 0)),
+  );
+
+  // --- Closing Sprint progress ---
+  const sprint = computeClosingSprintProgress({
+    manager: broker,
+    allUsers: seedUsers,
+    deals: seedDeals,
+    referenceIso: refIso,
+  });
+  check(
+    section,
+    "Closing Sprint: progressPct in [0, 100]",
+    sprint.progressPct >= 0 && sprint.progressPct <= 100,
+  );
+  check(
+    section,
+    "Closing Sprint: teamTargetAmount > 0",
+    sprint.teamTargetAmount > 0,
+  );
+  check(
+    section,
+    "Closing Sprint: 3 rewards (1st / 2nd / 3rd place)",
+    sprint.rewards.length === 3,
+  );
+  check(
+    section,
+    "Closing Sprint: ranks 1, 2, 3 present in rewards",
+    sprint.rewards.some((r) => r.rank === 1) &&
+      sprint.rewards.some((r) => r.rank === 2) &&
+      sprint.rewards.some((r) => r.rank === 3),
+  );
+  check(
+    section,
+    "Closing Sprint: 1st place reward = ₱50,000 (mockup-anchor)",
+    sprint.rewards.find((r) => r.rank === 1)?.amountPHP === 50_000,
+  );
+  check(
+    section,
+    "Closing Sprint: 2nd place reward = ₱30,000",
+    sprint.rewards.find((r) => r.rank === 2)?.amountPHP === 30_000,
+  );
+  check(
+    section,
+    "Closing Sprint: 3rd place reward = ₱20,000",
+    sprint.rewards.find((r) => r.rank === 3)?.amountPHP === 20_000,
+  );
+  check(
+    section,
+    "Closing Sprint: top closer is agent-001 (Alyssa Garcia)",
+    sprint.topCloserName === "Alyssa Garcia",
+    `got ${sprint.topCloserName}`,
+  );
+  check(
+    section,
+    "Closing Sprint: top closer amount matches their leaderboard sales",
+    sprint.topCloserAmount === brokerLeaderboard[0]?.sales,
+  );
+
+  // --- Pending commissions: broker view sees their share, not agent's ---
+  // The agent-view sum is ₱367,500 (from Section 18); broker view will differ.
+  const agent001 = seedUsers.find((u) => u.id === "agent-001");
+  if (agent001) {
+    const agentKPIs = computeManagerKPIs({
+      manager: agent001,
+      allUsers: seedUsers,
+      deals: seedDeals,
+      commissions: seedCommissions,
+      siteVisits: seedSiteVisits,
+      leads: seedLeads,
+      referenceIso: refIso,
+    });
+    // For an Agent, "team" is just themselves
+    check(
+      section,
+      "Agent view of computeManagerKPIs: team is self (size 1)",
+      agentKPIs.activeAgents === 1,
+    );
+    // Phantom-commission guard at the dashboard layer too
+    check(
+      section,
+      "Phantom-commission guard at dashboard: broker.pendingCommissions ≠ agent.pendingCommissions",
+      brokerKPIs.pendingCommissions !== agentKPIs.pendingCommissions,
+    );
+  }
+
+  // --- Seeded-prop-anchor: Alyssa Garcia is the top performer in 7's demo ---
+  const alyssa = brokerLeaderboard[0];
+  if (alyssa) {
+    check(
+      section,
+      "Anchor: top performer is named Alyssa Garcia",
+      alyssa.agentName === "Alyssa Garcia",
+    );
+    check(
+      section,
+      "Anchor: Alyssa has 5 closed deals (matches Session 6's Maria/Laurel arc)",
+      alyssa.deals === 5,
+    );
+    // Alyssa's closed-deal sum should equal the top closer amount in the sprint
+    check(
+      section,
+      "Anchor: Alyssa's sales = sprint.topCloserAmount (cross-derivation check)",
+      alyssa.sales === sprint.topCloserAmount,
+    );
+  }
+
+  // --- Narrative chain extension check ---
+  // Maria + Laurel arc: deal-001 is Alyssa's; she's #1 on the leaderboard.
+  // Session 6's comm-001 (₱127,500 For Closing) is hers. Session 7 surfaces
+  // her as top performer. The chain continues.
+  const deal001 = seedDeals.find((d) => d.id === "deal-001");
+  check(
+    section,
+    "Narrative chain: deal-001 (Maria/Laurel anchor) is assigned to agent-001 (the top performer)",
+    deal001?.agentId === "agent-001",
+  );
+}
+
+// ----------------------------------------------------------------------------
+// 20. PRD Coverage
 // ----------------------------------------------------------------------------
 
 function reportPRDCoverage() {
-  const section = "19. PRD Coverage";
+  const section = "20. PRD Coverage";
 
   check(
     section,
@@ -5524,6 +5848,40 @@ function reportPRDCoverage() {
     complete >= 33,
     `complete=${complete}`,
   );
+
+  // Session 7A: broker-dashboard + realtor-dashboard + leaderboard-full.
+  const session7aRoutes = [
+    "broker-dashboard",
+    "realtor-dashboard",
+    "leaderboard-full",
+  ];
+  for (const id of session7aRoutes) {
+    const entry = prdRoutes.find((r) => r.id === id);
+    if (!entry) {
+      fail(section, `Session 7A route ${id} present in manifest`, "missing");
+      continue;
+    }
+    check(
+      section,
+      `Session 7A route "${id}" status = complete`,
+      entry.status === "complete",
+      `got ${entry.status}`,
+    );
+    check(
+      section,
+      `Session 7A route "${id}" completedInSession = 7`,
+      entry.completedInSession === 7,
+      `got ${entry.completedInSession}`,
+    );
+  }
+
+  // Coverage cannot regress: 33 (Session 6) + 3 (Session 7A routes) = 36.
+  check(
+    section,
+    "Coverage progress: ≥ 36 routes complete after Session 7A",
+    complete >= 36,
+    `complete=${complete}`,
+  );
 }
 
 // ----------------------------------------------------------------------------
@@ -5605,5 +5963,6 @@ checkShareListing();
 checkAttachFilesAndEngagement();
 checkDealsAndSiteVisits();
 checkCommissionTrackingMarquee();
+checkManagerDashboards();
 reportPRDCoverage();
 report();

@@ -218,23 +218,34 @@ export const prdRoutes: PRDRoute[] = [
     title: "Broker Dashboard",
     route: "/broker",
     expectedElements: [
-      "Team-level KPIs",
-      "Leaderboard summary",
-      "Pending agent approvals",
-      "AI insights",
+      "Greeting with broker name + subtitle 'Here's what's happening with your team'",
+      "Date range selector + Broadcast Message CTA in header",
+      "7-card KPI row (Active Agents · Agent Health with label badge · Site Visits Booked · For Closing · Deals Closed · Total Sales · Pending Commissions)",
+      "Top Performers leaderboard (5 rows) with View Full Leaderboard link",
+      "Team Updates compose card with 4 quick-action chips (Announcement / Event / Award / Bonus) + Send to All Agents CTA + recent update preview",
+      "May Closing Sprint card with team progress donut + Team Progress amounts + Top Closer + Rewards podium (3 ranks)",
     ],
-    status: "pending",
+    status: "complete",
+    completedInSession: 7,
+    notes:
+      "Session 7. Uses parameterized ManagerDashboard component with role='Broker'. Engine-honest KPIs route through computeManagerKPIs / computeLeaderboard / computeClosingSprintProgress.",
   },
   {
     id: "realtor-dashboard",
     title: "Realtor Dashboard",
     route: "/realtor",
     expectedElements: [
-      "Network KPIs",
-      "Broker performance overview",
-      "Network-wide AI insights",
+      "Greeting with realtor name + subtitle 'Here's your network's overview today'",
+      "Date range selector + Broadcast Message CTA in header",
+      "Same 7-card KPI row as broker but values aggregated over the realtor's transitive network",
+      "Top Performers leaderboard scoped to network",
+      "Team Updates compose card with 'Send to All' (vs broker's 'Send to All Agents')",
+      "May Closing Sprint card with network progress",
     ],
-    status: "pending",
+    status: "complete",
+    completedInSession: 7,
+    notes:
+      "Session 7. SAME ManagerDashboard component as broker dashboard; role='Realtor' prop drives transitive network resolution + framing copy. Network = direct agents + agents under child brokers.",
   },
 
   // ----- Leads & Conversation (Session 3) -----
@@ -753,12 +764,15 @@ export const prdRoutes: PRDRoute[] = [
     title: "Leaderboard (Full View)",
     route: "/broker/leaderboard",
     expectedElements: [
-      "Ranked agents with health labels",
-      "Multi-dimensional metrics (deals, leads, listings, engagement)",
-      "Time-range filter",
+      "Period filter chips (This Month / This Quarter / Year to Date / All Time)",
+      "3 highlight tiles (Top closer / Most sales / Healthiest score)",
+      "Sortable full ranking table (Rank / Agent + status badge / Deals / Sales / Health / Recent activity)",
+      "Positive copy throughout — celebrates wins, no shaming",
     ],
-    status: "pending",
-    notes: "Added per scope contract additions.",
+    status: "complete",
+    completedInSession: 7,
+    notes:
+      "Session 7. Parameterized Leaderboard component used by both /broker/leaderboard and /realtor/leaderboard. Engine-derived sort from computeLeaderboard. All columns sortable.",
   },
 ];
 

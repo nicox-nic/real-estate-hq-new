@@ -5,6 +5,78 @@ Newest sessions at top.
 
 ---
 
+## Session 7A — Broker Command Center + Realtor Network Dashboard + Leaderboard
+**Date:** 2025-05-29
+**Branch:** main
+**Scope:** Parameterized ManagerDashboard component (broker + realtor variants) per mockup 1; Leaderboard full view (#47); manager dashboard concentration point. **Split executed per framing's pre-authorization** — 7B will ship Agents module + Agent Profile + Listing Distribution + Team Updates + Awards & Bonuses.
+
+### What shipped
+
+- **`lib/logic/managerDashboardDerivations.ts`** — Session 7A's concentration point. Pure-function module mirroring the architectural shape of 5C's `dealStageDerivations.ts` and 3A's `dashboardDerivations.ts`. Exports:
+  - `resolveTeamAgentIds(manager, allUsers)` — returns the set of agent IDs in scope. Broker → direct reports (`parentId === broker.id` AND `role === "Agent"`); Realtor → direct + transitive (agents under brokers under the realtor). Pure; caller passes the users list.
+  - `computeManagerKPIs(input)` — the 7-card KPI row: Active Agents · Agent Health (score + label) · Site Visits Booked · For Closing · Deals Closed · Total Sales · Pending Commissions. Pending Commissions uses the **manager's role share** (`brokerAmount` vs `realtyAmount`), NOT the agent's. The phantom-commission bug class prevented from the start at this layer too.
+  - `computeLeaderboard(input)` — per-agent rows with deals / sales / health / status. Default sort: deals desc, sales desc, health desc. Returns ALL team agents; caller `.slice(0, N)` for the compact 5-row dashboard or shows all for the full /leaderboard page.
+  - `computeClosingSprintProgress(input)` — donut data for May Closing Sprint card. Team progress amount / target / pct, top closer name + amount, days remaining, rewards podium (1st ₱50K / 2nd ₱30K / 3rd ₱20K mockup-anchor amounts).
+- **`components/manager/ManagerDashboard.tsx`** — **parameterized single component** used by BOTH `/broker` and `/realtor`. Architectural decision: ONE component, role prop drives team-vs-network scope and framing copy. Composition per mockup 1:
+  - Header: greeting "Welcome back, {firstName}" + subtitle ("Here's what's happening with your team" vs "Here's your network's overview today") + date range selector + Broadcast Message CTA
+  - **7-card KPI row** (responsive grid, full width on lg): Active Agents · Agent Health (with score + label badge) · Site Visits Booked · For Closing · Deals Closed · Total Sales · Pending Commissions
+  - Two-column zone: Left (wider, lg-col-span-2) Top Performers leaderboard (5 rows compact, with View Full Leaderboard link) + Team Updates compose card (input + 4 quick-action chips Announcement/Event/Award/Bonus + Send to All Agents CTA + recent update preview); Right (lg-col-span-1) May Closing Sprint card with donut + Team Progress amounts + Top Closer + Rewards podium (3 ranks)
+- **`components/manager/Leaderboard.tsx`** — parameterized full leaderboard view used by both `/broker/leaderboard` and `/realtor/leaderboard`. Composition:
+  - Header with back-link to dashboard
+  - Period filter chips (This Month / This Quarter / Year to Date / All Time)
+  - **3 highlight tiles**: Top closer (gold) / Most sales (sage) / Healthiest score (terracotta)
+  - **Sortable table**: Rank / Agent (with status badge) / Deals / Sales / Health / Recent activity. All 4 main columns sortable (click header toggles direction).
+  - Positive copy throughout — "Celebrate every win", recognizes achievements, no shaming
+- **`/broker/page.tsx`** + **`/realtor/page.tsx`** — replace the existing scaffolds. Each is a one-liner that mounts `<ManagerDashboard role="Broker|Realtor" />`. This is the parameterization in action.
+- **`/broker/leaderboard/page.tsx`** + **`/realtor/leaderboard/page.tsx`** — new routes mounting `<Leaderboard role="Broker|Realtor" />`.
+- **PRD manifest**: broker-dashboard (#9), realtor-dashboard (#10), leaderboard-full (#47) all promoted to complete with completedInSession=7. Coverage: 33 → 36.
+
+### Decisions and engineering notes (carry-forwards)
+
+- **Single parameterized component, not two components.** Per the framing's "same Component, different role prop drives team-vs-network framing and transitive resolution". Decision rationale: the broker and realtor dashboards have identical composition (same 7 KPIs, same Top Performers card, same Team Updates compose, same Closing Sprint card). The ONLY differences are: (a) scope resolution (direct vs transitive), (b) framing copy ("team" vs "network", "Send to All Agents" vs "Send to All"). Both differences are role-driven and small enough to inline. **Two components would be duplication; one component is parameterization.** This is the architectural pattern lesson of Session 7A: when surfaces are 80% identical and 20% role-driven, parameterize.
+- **Same parameterization applied to Leaderboard.** One `<Leaderboard role={...} />` component, two routes. Verified by both /broker/leaderboard and /realtor/leaderboard rendering correctly with different scopes.
+- **Engine-honest KPIs, NOT mockup-anchor numbers.** The mockup shows Active Agents 128 / Agent Health 87 "Great" / Total Sales ₱23.8M for broker; the seed produces Active Agents 9 / Agent Health 7 "Low Activity" / Total Sales ₱36.5M. **Per Q1 + the Marisol lesson + the engine-definitive precedent from Session 6**: engine wins. The mockup's example values are illustrative (it shows what a fully-staffed mature brokerage looks like); the seed is a starter brokerage with 9 agents. The numbers diverge significantly but the *composition* matches the mockup exactly. Reviewer can request seed expansion (more agents, more deals) in Session 8 or 9 polish if the demo needs the "Great" health label.
+- **The Pending Commissions KPI uses the manager's role share, not the agent's.** This is the bug-class prevention at the dashboard layer: `c[managerShareField as keyof Commission]` reads `brokerAmount` for brokers and `realtyAmount` for realtors. Verified in Section 19: `broker.pendingCommissions ≠ agent.pendingCommissions` over the same data. **The phantom-commission bug class is now structurally prevented at every aggregation layer in the codebase.**
+- **DonutChart reuse for the sprint progress donut.** The existing `components/ui/DonutChart.tsx` primitive (used by Commission Tracking) renders the sprint donut too. **Same primitive, third use — this is genuine Rule of Three application** (Money on the Way feature card from 3A + Commission Tracking breakdown from 6 + Closing Sprint progress from 7A all use the same DonutChart). The primitive earns its keep.
+- **Health-floor copy treatment is honest.** Engine-honest agent health is low (7-10 range across the team) because the seed doesn't have follow-ups or share-tracking-per-agent yet. The "Low Activity" label is rendered honestly. Reviewer call: seed follow-ups + share-per-agent in Session 9 polish to raise health scores closer to the mockup's "Great" label, or keep engine-honest. Going with engine-honest until reviewer ratifies.
+- **No new entity types.** The "team updates" recent-update preview is a static composition (not a new TeamUpdate entity). Session 7B will likely introduce TeamUpdate; flagged for 7B.
+- **Split executed per framing pre-authorization.** Closing 7A here; 7B will ship the remaining surfaces (Agents module #29, Agent Profile #30, Listing Distribution #41 with AI agent-recommendation declarative rule table, Team Updates #31, Awards & Bonuses #32). Rationale: ManagerDashboard + Leaderboard at marquee-fidelity are themselves a coherent session deliverable; pushing more surfaces in would risk quality compromises. The split was pre-authorized for exactly this case.
+
+### Mockup ambiguities surfaced (flagged, not silently resolved)
+
+1. **Mockup example values (Agents 128, Health 87 "Great", Total Sales ₱23.8M) vs seed-computed (9, 7 "Low Activity", ₱36.5M).** Engine-honest math wins per Q1. The mockup shows what a mature brokerage looks like; the seed is a starter. **Flagged for reviewer ratification** — same engine-vs-mockup pattern as Session 6's commission tracking divergence. **Reviewer can request seed expansion or accept engine-honest.**
+2. **Team Updates compose card's "recent update preview"** is currently a static composition (broker shows "May Closing Sprint is ON!", realtor shows "New Rental Inventory Just In!"). The mockup's preview is one row; with a TeamUpdate entity from 7B this would be dynamic. **Flagged: introduce TeamUpdate entity in 7B**, or compose from existing Announcement-like data.
+3. **Mockup shows "Top 1 / Top 2 / Top 3" rewards podium with trophy icons.** I rendered a 3-cell grid with rank numbers + bonus amounts. Mockup ambiguity around exact icon treatment; my rendering is reasonable but different. **Documented; reviewer can iterate in 7B or 9.**
+
+### Verify
+
+- TypeScript: clean (`tsc --noEmit`).
+- Build: **44 routes** (was 42 in 6; +2 new leaderboard routes). Broker dashboard 281 B / 228 kB First Load (DonutChart + recharts contribute the chunk size — same as Commission Tracking's marquee). Realtor dashboard 282 B / 228 kB. Leaderboard routes 274/275 B / 131 kB each.
+- Verify: **1541 / 1541 passed** (+60 from Session 6's 1481). Distribution:
+  - **Section 19 NEW (Manager Dashboards): 53 asserts** — resolveTeamAgentIds broker/realtor totality + realtor ⊇ broker invariant + team members are Agents only + computeManagerKPIs every-field-valid for broker AND realtor + parameterization assertions (realtor.activeAgents > broker.activeAgents, realtor.totalSales ≥ broker.totalSales, realtor and broker compute different totals) + hand-computed (broker = 9 direct reports, realtor network > 9) + computeLeaderboard (one row per team agent, sort discipline deals desc, Alyssa Garcia anchor with 5 deals as top performer) + Closing Sprint progress (% in [0,100], 3 rewards with ranks 1/2/3 and ₱50K/₱30K/₱20K mockup-anchor amounts, top closer Alyssa with sales = leaderboard[0].sales cross-derivation lock) + Agent view of computeManagerKPIs (team is self size 1) + phantom-commission guard at dashboard layer (broker.pendingCommissions ≠ agent.pendingCommissions) + narrative chain extension (deal-001 / agent-001 = the top performer)
+  - Section 20 PRD Coverage: 77 → 84 (+7 from Session 7A advancement, 3 routes × 2 + aggregate)
+
+### Stop signal met (for 7A)
+
+End-to-end manager dashboard flow walkable:
+- ✅ Open `/broker` → see Broker Command Center with 9 agents, ₱36.5M total sales, full mockup-1 composition. Top Performers shows Alyssa Garcia #1 with 5 deals + ₱32M sales. May Closing Sprint donut at 100% (team has already exceeded the ₱24M target with ₱36.5M closed). Top closer Alyssa ₱32M.
+- ✅ Tap "View Full Leaderboard" → `/broker/leaderboard` → full 9-row table sortable by Agent / Deals / Sales / Health. 3 highlight tiles showing Alyssa as top closer + most sales + healthiest.
+- ✅ Open `/realtor` → see Realtor Network Dashboard with 12 agents (broker's 9 + 3 transitive from other brokers under realtor-001), ₱46M total sales, copy reads "Here's your network's overview today." (not "team")
+- ✅ Tap "View Full Leaderboard" on realtor → /realtor/leaderboard with 12 rows.
+- ✅ Phantom-commission bug class still prevented at this layer: broker view's Pending Commissions reads broker share (₱594K), agent's would read agent share (different number).
+
+### Narrative chain extension (Maria + Laurel arc continues)
+
+The Maria + Laurel 12A arc that runs share-006 → deal-012 → comm-001 → Commission Timeline detail (Session 6) now extends to Session 7A:
+- **deal-001** (the Maria + Laurel anchor commission's underlying deal) is agent-001's (Alyssa Garcia)
+- **Alyssa is #1 on the Top Performers leaderboard** with 5 closed deals including deal-001
+- **Alyssa is the Top Closer** in the May Closing Sprint with ₱32M in closed-deal sales
+- **Alyssa appears in the Highlight tiles** of the full Leaderboard view as the top closer AND most sales AND healthiest
+
+**The narrative chain now spans 6 surfaces across 4 sessions** (share-006 → deal-012 → comm-001 → Commission Timeline → Broker dashboard top performer → Leaderboard #1). Locked across sessions.
+
+---
+
 ## Session 6 — Commission Tracking (the SECOND MARQUEE mockup-matching session, highest-stakes single screen)
 **Date:** 2025-05-29
 **Branch:** main
