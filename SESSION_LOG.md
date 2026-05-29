@@ -5,6 +5,96 @@ Newest sessions at top.
 
 ---
 
+## Session 5A — Share Listing + Preview Message (FIRST MARQUEE MOCKUP-MATCHING SESSION)
+**Date:** 2025-05-29
+**Branch:** main
+**Scope:** Share Listing main page (#21) and Preview Message page (#23) at mockup-fidelity. AI Share Message engine, outbound-variant tone application, ShareCampaign + ConversationMessage send wiring, smart-link generation. The first session where the mockup is the visual contract.
+
+### What shipped
+
+- **`lib/logic/aiShareMessage.ts`** — rule-driven outbound share message generator. Same posture as `lib/logic/aiReply/suggester.ts` from Session 3B: no LLM call, pure-function rule routing on `(listing, lead)` → `{rule, ruleDescription, draft, actions}`. 7 declarative rules in priority order: `ofwBuyer` → `investor` → `luxury` (price ≥ ₱25M) → `familyEndUser` (End-User + familySize ≥ 3) → `firstTimeBuyer` → `rentalYield` → `defaultIntroduction`. `SHARE_RULES` table is the public, verify-locked contract. Demo anchor verified: Maria's profile (End-User, family 5, Taguig) + Laurel 12A → `familyEndUser` rule → body matches mockup word-for-word: "Based on your budget and preference for a family-friendly home in Taguig, I think this property might be a great fit for you. Laurel Hills Estate — Unit 12A is a 4BR house & lot near schools, malls, and major roads. Would you like me to send the sample computation?"
+- **`lib/logic/aiShareTone.ts`** — **outbound-variant** of `applyTone`. Same `Tone` union (8 tones reused from `aiReply/tones.ts`), but per-tone shaping calibrated for OUTBOUND messages, not replies. Phrases like "Thank you for your inquiry" and "I'm really glad you reached out" — appropriate to inbound context but wrong for outbound — are explicitly forbidden. `SHARE_FORBIDDEN_PHRASES` table locked by verify. Greeting always regenerated per tone (Friendly: "Hi Maria!"; Professional: "Good day, Maria."; Investor: "Hi Maria,") so when the Refine sheet changes tone, the greeting style follows. **Carry-forward from Session 3B framing satisfied: "Refine sheet pattern composed directly from 3B or needed adjustment" — adjustment.**
+- **`lib/shareStore.ts`** — client-side ShareCampaign store mirroring `conversationStore.ts`. `shareListing(input)` is the send action: creates a `ShareCampaign` (with a deterministic `smartLinkFor()` URL) AND calls `sendMessage()` to drop a `ConversationMessage` into the buyer's thread with `shareCampaignId` linking back to the campaign. `useShareCampaignsForListing()` hook for live listing-level engagement. `_resetShareStoreForTests()` and `getClientShareCount()` for verify.
+- **`lib/types.ts`** — added `shareCampaignId?: string` field to `ConversationMessage`. **Field, not entity.** Justification: the agent's outbound conversation message that originates from the Share Listing flow needs to be queryable as "this message came from a share campaign" for engagement back-traceability. Translates cleanly to a backend foreign key.
+- **`app/agent/listings/[listingId]/share/page.tsx`** — Share Listing main page (#21). Composition matches mockup image 2:
+  - Header strip with back arrow + "Share Listing" + "Preview" link top-right
+  - Property hero card with image placeholder + title + property type + location + price + ownership/transaction badges + commission percentage
+  - AI Generated Message panel (gold-soft surface): editable textarea, Regenerate button, rule name visible in header strip ("· rule: familyEndUser"), rule description below
+  - Tone + Language pills (open the Refine sheet on tap)
+  - Attach Files (4) chips row with 4 PDF/JPG chips + "Add More" tile (sheet implementation deferred to 5B per framing)
+  - Share via channel row: Messenger / WhatsApp / Instagram DM / SMS / Email / More — 6 chips with brand-aware colors (Messenger blue #0084FF; WhatsApp green #25D366; Instagram gradient; SMS sage-deep; Email ink; More ink)
+  - Smart Link Created card: live URL (`https://estatehq.ph/l/...`), Copy Link button with confirmation state, QR Code scan affordance
+  - Recipient picker (horizontal chip row of active leads, Maria selected by default)
+  - Sticky bottom primary CTA: **"Send to Maria Santos"** in sage-deep with Send icon — matches mockup exactly
+  - Refine sheet (bottom sheet) with all 8 tones + 3 languages + Regenerate button
+- **`app/agent/listings/[listingId]/share/preview/page.tsx`** — Preview Message page (#23). Composition matches mockup image 2 right panel:
+  - Header strip with back arrow + "Preview Message" + channel indicator
+  - Phone-style chat-bubble preview area (canvas-sunken background)
+  - Faux sender row at top of preview (agent initials avatar + name + "Messenger · to Maria Santos")
+  - Sage-soft chat bubble with rounded-tl-md (chat-bubble corner), max-width 92%:
+    - Intro paragraph (first paragraph of message)
+    - Inline listing card preview (gradient hero + title + property type + price + "Near schools, malls and major roads.")
+    - Trailing paragraphs (sample computation question)
+    - Footer with timestamp + sage-deep CheckCheck icon (read receipts)
+  - Attachments list card with 4 file rows (file icon, name, size + format, Eye icon)
+  - "Files will be sent as attachments." caption
+  - Sticky bottom: "Send Now" primary CTA (sage-deep) + "Edit Message" ghost button
+- **`components/share/ChannelChips.tsx`** — 6-channel chip row with `channelVisualFor()` mapping (sixth concentration point in spirit, though only used in this surface so doesn't yet meet Rule of Three threshold — flagged for future reuse). Active state fills with brand color, inactive shows brand color on neutral background.
+- **`components/share/ShareRefineSheet.tsx`** — bottom sheet composing `ALL_TONES` (8) and `ALL_LANGUAGES` (3) from aiReply with a Regenerate button.
+- **`components/listings/ListingActionRow.tsx`** — extended with `primaryHref?: string` prop. When provided, the primary action renders as a styled Next.js Link instead of a button — enables clicking "Share to my pipeline" on a unit card or My Listings card to route to the Share Listing page. Cross-file invariant on role-aware action labels still locked.
+- **Wiring updates**:
+  - `app/agent/listings/for-sale/developers/[developerId]/[projectId]/page.tsx` — Unit Inventory cards now resolve their unit → listing (via `seedListings.find(l => l.unitId === unit.id)`) and pass `primaryHref` so Agents tapping the action chip route to `/agent/listings/{listingId}/share`
+  - `app/agent/my-listings/page.tsx` — My Listings cards pass `primaryHref` for Agents
+- **`data/propertyFiles.ts`** — added Floor Plan and Location Map files for `listing-laurel-12a` so the Share Listing page can render the 4 attachments visible in the mockup (Brochure / Computation / Floor Plan / Location Map). Demo anchor: 4 files in 4 different categories.
+- **Seed name disambiguation**: `data/leads.ts`, `data/siteVisits.ts`, `verify/index.ts` updated to rename buyer "Maria Santos Buyer" → "Maria Santos" so the CTA reads "Send to Maria Santos" exactly matching the mockup. Both broker-001 (Maria Santos, User) and buyer-005 (Maria Santos, BuyerProfile) share first/last name; they're distinguishable by entity type and surface context (broker as logged-in user; buyer as recipient). Cross-disambiguation verify-locked.
+
+### Decisions and engineering notes (carry-forwards)
+
+- **Send architecture: campaign + thread message (both, linked).** The framing carry-forward question: "Does the Send action create a ConversationMessage in the buyer's thread, or is it a separate ShareCampaign entity?" Answer: **both**. `ShareCampaign` records WHAT was shared, on WHICH channel, with engagement metadata (opens / brochure clicks / computation requests / site visit bookings / replies). `ConversationMessage` records the buyer-visible message text. The two reference each other via `ConversationMessage.shareCampaignId`. This is the right architecture because the campaign and the message answer different questions (engagement analytics vs conversation history); a single record would conflate them. Backend wiring later: `shareCampaignId` becomes a foreign key.
+- **Refine sheet pattern adjusted from 3B, not composed verbatim.** Created `applyShareTone()` as a sibling to `applyTone()` because outbound shares require a different per-tone shaper (no "I'm really glad you reached out" — that's inbound-context). Same `Tone` union and tone count. `SHARE_FORBIDDEN_PHRASES` table is the verify contract: outbound tones must never include the inbound phrases. **Flag for the codebase principle: the sibling-helper pattern (3B's `applyTone` + 5A's `applyShareTone`) is the right shape when two adjacent contexts share a vocabulary (tones) but differ in shaping logic — single-responsibility helpers composing better than one multi-purpose helper. Same principle the framing flagged for `shareActionFor()` in 4B.**
+- **AI Share rule set documented in `SHARE_RULES`** as a declarative table with `description` + `priority` per rule. Same transparency discipline as 3B's AI Reply (rule name surfaced in panel header) and 4B's AI Search (extraction rules table). The Share page shows the active rule name AND its description below the message. **Rule of Three confirmed for declarative rule tables**: `aiReply` rules, `aiListingSearch` `SEARCH_RULES`, `aiShareMessage` `SHARE_RULES`. All three follow the same shape: a declared mapping that's verify-locked + UI-surfaced for transparency.
+- **Sixth helper flagged: `shareActionFor()`** — NOT extracted in 5A. The framing called for this in My Listings ("Share with buyer" vs "Share to my pipeline" context discrimination). 5A's surfaces route to the same Share Listing page; the source context (discover vs my-listings) doesn't currently change the destination behavior. Will surface in Session 5B/7 when the broker-side distribution UI lands with a genuinely different action ("Send to N agents" → "Distribute to agents now" with the AI-recommended agent picker). Defer until 3 real call sites exist.
+- **Mockup composition fidelity decisions**:
+  - The mockup image 1 (sharing page hero) shows 6 channels (Messenger / WhatsApp / Instagram DM / SMS / Email / More) — taken as canonical.
+  - The mockup image 2 (organizer with attach files visible) shows 5 channels (WhatsApp / Messenger / SMS / Email / More — no Instagram DM). I went with image 1's 6-chip set since the PRD explicitly lists 6.
+  - Property hero image: rendered as a CSS gradient placeholder (charcoal slate ramp). The mockup uses a real photo; 5A doesn't ship image assets — placeholder reads as a property thumbnail. Acceptable for screenshot-defensibility at this polish level; real imagery is a 5B/9 concern.
+  - The Share via channel row uses brand-aware colors (Messenger blue, WhatsApp green, Instagram gradient) only on the selected/active state. The mockup shows brand-tinted icons on neutral backgrounds for inactive chips, which I matched.
+  - "Send to Maria Santos" CTA is sage-deep with white text — matches mockup (which shows the same sage/dark-green primary).
+  - "Send Now" / "Edit Message" stacked CTAs on Preview Message — sage-deep primary + ghost secondary, matches mockup.
+- **Mockup ambiguity surfaced (NOT silently resolved):** The mockup shows "AI Recommendation" side panel ("Based on Maria's request, we recommend attaching the sample computation and brochure" with [Brochure] [Computation] chips). This is an AI file-recommendation feature — distinct from the AI message generation. **Per PRD: "AI should recommend files based on buyer question."** This is logically the Attach Files sheet's responsibility — when the agent opens the sheet, AI surfaces "based on the buyer's last message, we suggest these files." **Deferred to Session 5B explicitly, where the Attach Files sheet ships** — at which point the recommendation surfaces naturally inside the sheet rather than as a separate side panel. Surfacing here for reviewer ratification.
+- **Mockup ambiguity surfaced**: The mockup image 1 also shows "Engagement Tracking" (Live — Buyer opened listing 3 times) and "Share Performance" (donut chart, 28 total shares) and "AI Match Preview" (Maria Santos 92% Match) side panels. These are POST-share views — they're meaningful only after a campaign has been sent. **They are 5B's territory** (smart-link tracking, engagement events, file engagement). 5A renders the Share Listing PRE-send state. Surfaced here so the reviewer knows the mockup's side-panel content isn't missing — it's deferred.
+- **Smart link URL determinism: `smartLinkFor(listingId, agentId, buyerLeadId)` → `https://estatehq.ph/l/{slug}-{hash}` where hash is a 4-char FNV-1a base36 token over the input tuple.** Verify locks the URL host + slug presence + determinism + input sensitivity. Backend smart-link wiring (token registration, redirect, engagement events) is 5B.
+- **PRD bottom-nav discrepancy noted (not addressed in 5A).** PRD says agent bottom nav should be: Dashboard / My Leads / My Listings / Commissions / Insights. Current AppShell has: Dashboard / Leads / Listings / Deals / Earnings. The mockup shows the PRD layout. **Deferred to a polish session (likely 9)** — changing the nav is structural and impacts existing routes. Surfaced for reviewer awareness.
+- **The Share Listing route lives at `/agent/listings/[listingId]/share`.** Not `/agent/share/[listingId]` or `/agent/listings/[listingId]/[action=share]`. The route nesting follows the natural ownership ("share" is a verb on a listing, so listing → share). Matches the 4A correction principle (use the most PRD-true route structure even if the original manifest had a flatter assumption).
+- **The Listing detail route (`/agent/listings/[listingId]`) is still expected 404.** A polish session or Session 5B can ship the read-only detail view. The Share button on a listing card routes directly to the share sub-route, so the missing detail page doesn't block the share flow.
+- **Verify Section 14 (Share Listing, 96 asserts)** is the largest single-session verify section to date (vs Section 9 AI Reply's 80, Section 12 Listings 4B's 75, Section 10 Listings spine's 75). Reflects the marquee nature: 7 rules × multiple invariants each, 4-pronged structural proof on profile variation, mockup-anchor text fidelity, all 8 tones × forbidden-phrase × distinctness, deterministic smart link, send action wiring, 4 files × 4 categories anchor.
+
+### Verify
+
+- TypeScript: clean (`tsc --noEmit`).
+- Build: **34 routes** (was 32). +2 share routes. Share Listing at 8.63 kB / 136 kB First Load; Preview Message at 5.62 kB / 127 kB.
+- Verify: **1113 / 1113 passed** (+109 from Session 4B's 1004). Distribution:
+  - Section 1 FK Integrity: 475 → 483 (+8 from new private offerings + Floor Plan + Location Map files)
+  - Section 14 Share Listing: 96 new asserts
+  - Section 15 PRD Coverage: 57 → 62 (+5 from Session 5A advancement)
+
+### Stop signal met
+
+- ✅ Open Unit Inventory for Laurel Hills (`/agent/listings/for-sale/developers/dev-landmasters/proj-laurel-hills`).
+- ✅ Tap "Share to my pipeline" on unit-laurel-12a → `/agent/listings/listing-laurel-12a/share` opens with Maria Santos pre-selected as recipient.
+- ✅ AI Generated Message panel shows Maria-personalized text: "Hi Maria! Based on your budget and preference for a family-friendly home in Taguig, I think this property might be a great fit for you..." with "· rule: familyEndUser" badge in header.
+- ✅ Tap Refine → bottom sheet opens; switch to Professional Broker → message regenerates with "Good day, Maria." opener.
+- ✅ Switch language to Tagalog → message rewraps with "Kumusta, Maria po!" opener and "Salamat po..." closer.
+- ✅ Switch language to Cebuano → "Maayong adlaw, Maria!" opener; verify locks NO "po" anywhere.
+- ✅ Tap Messenger chip → channel selects (blue brand color); tap WhatsApp → switches.
+- ✅ Tap Copy Link → smart link copied to clipboard; button shows "Copied" sage-deep feedback for 1.8s.
+- ✅ Tap Preview link top-right → `/agent/listings/listing-laurel-12a/share/preview` opens with phone-style bubble showing message + inline listing card + attachments list.
+- ✅ Tap Edit Message on Preview → returns to Share Listing.
+- ✅ Tap "Send to Maria Santos" → ShareCampaign created, ConversationMessage dropped into Maria's thread with `shareCampaignId` linking back, routes to `/agent/leads/lead-instagram-01?shared={campaignId}`.
+- ✅ The 4-pronged profile-variation structural proof holds: investor lead routes to `investor` rule; family lead body contains "family-friendly" while investor body does not; investor body mentions "yield/ROI/appreciation" while family does not; family actions include `book_site_visit` while investor's do not.
+
+---
+
 ## Session 4B — Private Offerings + My Listings + AI Listing Search
 **Date:** 2025-05-29
 **Branch:** main

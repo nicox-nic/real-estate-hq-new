@@ -1,62 +1,92 @@
-# Session 4B — Report
+# Session 5A — Report
 
 **Branch:** `main`
-**Stop signal:** met. Listings module surface-completion phase done. Agent can navigate any path from Listings Menu through any category through any drill-down to any unit/private offering, with AI search at the Menu and My Listings levels, verification badges on every private offering, and role-aware actions at every level.
+**Stop signal:** met. Share Listing main page (#21) + Preview Message page (#23) at mockup-fidelity. AI Share Message engine + outbound-variant tone application + send architecture (campaign + thread message, linked) + smart-link generation all built and verify-locked. First marquee mockup-matching session complete.
 
 ## At a glance
 - **TypeScript:** clean
-- **Build:** 32 routes (was 26). +6 new (#19 Private Offerings + #20 My Listings + 4 role mirrors). Largest unchanged at 13.1 kB / 134 kB First Load
-- **Verify:** **1004 / 1004 passed** (+87 from Session 4A's 917) — crossed 1000
-  - Section 12 Listings 4B: 75 new asserts
-  - Section 13 PRD Coverage: +5 from Session 4B advancement
-  - Section 1 FK Integrity: +7 from 7 new private offerings
-- **PRD coverage:** **25 complete** · 0 scaffolded · 21 pending of 46
-- **Walkability:** The Listings module is now end-to-end complete on the read side. Agent → Menu → AI search → category → drill-down → private offerings → verification badges → My Listings → filters all walks.
+- **Build:** 34 routes (was 32). +2 share routes. Share Listing 8.63 kB / 136 kB First Load; Preview 5.62 kB / 127 kB
+- **Verify:** **1113 / 1113 passed** (+109 from Session 4B's 1004). **Section 14 Share Listing: 96 new asserts — largest single-session verify section to date** (Section 9 AI Reply: 80; Section 10 Listings spine: 75; Section 12 Listings 4B: 75)
+- **PRD coverage:** **27 complete** · 0 scaffolded · 19 pending of 46
+- **Walkability:** Unit Inventory → Share Listing → Refine (tones + languages) → Preview Message → Send → conversation thread receives the message with shareCampaignId link
 
-## What shipped (Session 4B's 2 promotions)
+## What shipped (Session 5A's 2 promotions)
 
 | # | Route | Status | Notes |
 |---|---|---|---|
-| 19 | `/agent/listings/for-sale/private` — Private Offerings | pending → **complete** | 10 private offerings, verification badges, 4 verification filter chips, mirrored under `/broker/...` and `/realtor/...` |
-| 20 | `/agent/my-listings` — My Listings | pending → **complete** | Per-role heading via `myListingsHeadingFor`, All/Active/Archived chips, transaction-type chips, mounted AISearchInput, mirrored under `/broker/my-listings` and `/realtor/my-listings` |
+| 21 | `/agent/listings/[listingId]/share` — Share Listing | pending → **complete** | Property hero + AI Generated Message panel (rule transparency) + 4 attach chips + 6-channel row + Smart Link card + recipient picker + sticky "Send to {Buyer}" CTA + Refine sheet |
+| 23 | `/agent/listings/[listingId]/share/preview` — Preview Message | pending → **complete** | Phone-style chat bubble + inline listing card preview + 4 attachments + Send Now + Edit Message |
 
-Plus: AI Listing Search mounted on Listings Menu (#14) and My Listings (#20). Not a separate manifest entry — it's an enhancement on those pages. Its behavior is verify-locked by Section 12.
+(#22 attach-files sheet remains pending — sheet implementation is Session 5B per framing; affordance is present in 5A.)
 
-## Fifth concentration point earned
+## Architectural decision documented: Send = campaign + thread message, linked
 
-`verificationVisualFor()` in `lib/logic/verificationVisual.ts` — the verification-status → visual treatment mapping concentrated in one place. The framing explicitly invited this *if it composed naturally*. It did. **Rule of Three is now Rule of Five across the codebase:** `applyTone` (8 tones → text), `applyEngineRule` (8 rules → suggestion), `splitCommission` (party → amount), `primaryActionFor` (3 roles → action label), `verificationVisualFor` (3 states → badge visual).
+Framing carry-forward question answered: **both, with linkage**. The Send action creates a `ShareCampaign` (engagement metadata: opens, brochure clicks, computation requests, site visit bookings, replies) AND a `ConversationMessage` (buyer-visible message text). The two reference each other via `ConversationMessage.shareCampaignId` (new field, not new entity — justification logged). Backend wiring later: `shareCampaignId` becomes a foreign key.
 
-Three states, three visual treatments, locked by verify:
-- **Verified** → sage-deep + ShieldCheck — settled, trustworthy
-- **Pending review** → gold-deep + Clock — in motion, attention earned
-- **Unverified** → terracotta-deep + ShieldAlert — needs verification before share
+Why both rather than one or the other:
+- A single `ShareCampaign` record would not appear in the buyer conversation thread, breaking the unified-inbox experience the PRD describes
+- A single `ConversationMessage` would not have an engagement-tracking surface, breaking the smart-link analytics the PRD describes
+- The linkage lets the conversation row surface "this message came from a share campaign" and route to the campaign analytics
 
-Cross-file invariant locked: no inline color literals for verification states outside this helper.
+## Sibling-helper pattern: `applyShareTone()` not `applyTone(..., context: "share")`
 
-## AI Listing Search engine
+The carry-forward from Session 3B framing — "Refine sheet pattern composed directly from 3B or needed adjustment" — landed on **adjustment**. Created `lib/logic/aiShareTone.ts` as a sibling to `lib/logic/aiReply/tones.ts`. Same `Tone` union (8 tones reused). Different per-tone shaper because outbound shares require different opener boilerplate. The reply variant inserts "Thank you for your inquiry" / "I'm really glad you reached out" — appropriate to inbound, wrong for outbound.
 
-Deterministic rule-based, same posture as the AI Reply engine in Session 3B. Live demo path: type "2BR condo in BGC under 20M" in either search input → 4 transparency chips appear (2BR · Condo · BGC · ≤₱20M) → exactly 1 listing card (Premium 2BR Condo — BGC) renders inline.
+**`SHARE_FORBIDDEN_PHRASES` table** locked by verify: outbound tone outputs must never include any of the inbound-context phrases. Cross-contamination guard.
 
-- **`SEARCH_RULES` table** — 14 declarative extraction rules (bedrooms / max-price M / min-price M / min-commission / 6 transaction types / 4 property types). Each has a `description` field — the transparency contract for any future UI surface that wants to enumerate "what can this search understand."
-- **`LOCATION_KEYWORDS`** — 25 PH locations, ordered longest-first ("Cebu Business Park" wins over "Cebu"). Standalone "Cebu" / "Manila" as fallback at end.
-- **`extractQuery(input)`** → `ExtractedQuery` — pure structured extraction.
-- **`applyQuery(q, listings)`** — pure filter. Bedroom matching permissive on ambiguity per design judgment (logged).
-- **`transparencyChipsFor(q)`** → `TransparencyChip[]` — exactly the chips for the extracted fields. Mirrors Session 3B's AI Reply rule-name display.
+This is the same single-responsibility-helpers principle the framing flagged for `shareActionFor()` in 4B's closeout. **Naming this as a documented codebase principle**: when two adjacent contexts share a vocabulary (tones) but differ in shaping logic, prefer the sibling helper over a context-arg overload. Single-purpose pure functions compose more cleanly.
 
-## All five carry-forward items addressed
+## Mockup ambiguities surfaced (NOT silently resolved)
 
-1. **Fifth concentration point earned.** `verificationVisualFor()`. Documented in the log.
-2. **Seed ratios: 50% / 30% / 20%** across 10 private For-Sale offerings = 5 Verified / 3 Pending / 2 Unverified. Documented.
-3. **AI Search rule set documented in `SEARCH_RULES` + `LOCATION_KEYWORDS` declarative tables.** The framing's "same transparency discipline as the AI Reply rule names in 3B" is satisfied by the description field on each rule + the public chip output.
-4. **Expected 404 noted again.** Tapping a listing title routes to `/{role}/listings/{listingId}` which is Session 5.
-5. **My Listings filter taxonomy ambiguity resolved.** PRD lists both transaction-type filters AND All/Active/Archived. I read these as **two orthogonal axes both present**, not either/or. Both chip rows render and filter independently. Rationale logged.
-6. **`primaryActionFor` extension flagged for Session 5/7.** Per-card action in My Listings should arguably read "Share with buyer" not "Share to my pipeline" — same listing, different context. My instinct is **sibling helper** (`shareActionFor`) over context arg on primaryActionFor — preserves concentration without overloading the existing helper. Surfaced for Session 5A's planning.
+Per the governing rule — "substantive deviations are reviewer's call, not the builder's." Surfacing for ratification:
 
-## Verify suite delta (917 → 1004)
+1. **AI Recommendation side panel from the mockup deferred to 5B's Attach Files sheet.** The mockup shows a side panel: "Based on Maria's request, we recommend attaching the sample computation and brochure" with [Brochure] [Computation] chips. This is AI **file** recommendation (distinct from AI message generation). Per PRD: "AI should recommend files based on buyer question." Naturally belongs inside the Attach Files sheet — when the agent opens the sheet, AI surfaces "based on the buyer's last message, suggest these files." Logged the routing. **Asking you to ratify that this side panel surface is the right destination for 5B, not 5A.**
+
+2. **Engagement Tracking / Share Performance / AI Match Preview side panels (mockup image 1) are POST-share views.** Meaningful only after a campaign has been sent. They're 5B's territory (smart-link tracking, engagement events). 5A renders the Share Listing PRE-send state.
+
+3. **Channel set count discrepancy between mockups.** Image 1 shows 6 channels (Messenger / WhatsApp / Instagram DM / SMS / Email / More). Image 2 shows 5 (WhatsApp / Messenger / SMS / Email / More — no Instagram DM). I went with image 1's 6 since PRD explicitly lists 6 in the share-via section.
+
+4. **Property hero image rendered as a CSS gradient placeholder, not a real photo.** The mockup uses a real property render; 5A doesn't ship image assets. The placeholder reads as a property thumbnail (charcoal slate gradient) and is acceptable at the polish bar for screenshot-defensibility. Real imagery is a 5B/9 concern.
+
+5. **PRD bottom-nav vs current AppShell.** PRD specifies agent bottom nav as Dashboard / My Leads / My Listings / Commissions / Insights. Current AppShell has Dashboard / Leads / Listings / Deals / Earnings. The mockup shows PRD layout. **Deferred to a polish session (likely 9)** — changing the nav is structural and touches existing routes.
+
+## Demo anchor verified
+
+The mockup's exact message text emerges from the rule engine on Maria + Laurel 12A:
+
+> "Hi Maria! Based on your budget and preference for a family-friendly home in Taguig, I think this property might be a great fit for you.
+>
+> Laurel Hills Estate — Unit 12A is a 4BR house & lot near schools, malls, and major roads.
+>
+> Would you like me to send the sample computation?"
+
+Maria's profile (`purposeOfPurchase: "End-User"`, `familySize: 5`, `preferredLocations: ["Taguig", "BGC"]`) routes to the `familyEndUser` rule. The rule's body interpolates "Taguig" from her preferred locations, the listing title verbatim, and "4BR house & lot" from the listing's property type. The closer matches the mockup. **Verify locks every phrase.**
+
+## 4-pronged structural proof on profile variation
+
+Profile-driven message variation locked by verify with semantic-shape assertions (per the methodology refinement from 3B):
+
+- **Prong 1 — rule routing:** family profile → `familyEndUser`; investor profile → `investor`
+- **Prong 2 — vocabulary inclusion:** family body contains "family-friendly"; investor body does not
+- **Prong 3 — vocabulary inclusion:** investor body mentions "yield" / "ROI" / "appreciation"; family body does not
+- **Prong 4 — action set:** family actions include `book_site_visit`; investor actions do not
+
+Each prong measures what the UI actually distinguishes between profiles, not length or count.
+
+## All carry-forwards documented (no review needed)
+
+- **AI Share rule set documented** in `SHARE_RULES` declarative table with description + priority per rule. Same transparency discipline as 3B's `TONE_MARKERS` and 4B's `SEARCH_RULES`. **Rule of Three confirmed for declarative rule tables across the codebase.**
+- **Send action wiring documented:** ShareCampaign + ConversationMessage linked via `shareCampaignId`. Field, not entity. Justification logged.
+- **Sibling-helper pattern (`applyShareTone` not context arg on `applyTone`) named as a codebase principle.** Same shape as the framing's `shareActionFor` instinct.
+- **Smart link URL determinism locked** by verify: `smartLinkFor(listingId, agentId, buyerLeadId)` → `https://estatehq.ph/l/{slug}-{4charHash}` with FNV-1a base36 hash. Same inputs → same URL; different inputs → different URL.
+- **Listing detail (`/agent/listings/[listingId]`) still expected 404.** The share route lives at `/agent/listings/[listingId]/share` — the missing detail page doesn't block the share flow. Polish session or Session 5B can ship the detail view.
+- **`shareActionFor()` sixth helper NOT extracted yet.** The framing flagged this for "Share with buyer" vs "Share to my pipeline" context discrimination. In 5A all surfaces route to the same share page; the source context doesn't currently change destination behavior. Rule of Three not yet met. Will surface in 5B/7 when broker-side distribution lands with a genuinely different action ("Distribute to N agents" with the AI-recommended agent picker).
+
+## Verify suite delta (1004 → 1113)
 
 | Section | Asserts | Delta | Notes |
 |---|---|---|---|
-| 1. FK Integrity | 475 | +7 | new private offerings add FK + role-aware aggregation pairs |
+| 1. FK Integrity | 483 | +8 | new property files (Floor Plan + Location Map for Laurel 12A) add FK pairs |
 | 2. Structural invariants | 70 | — | |
 | 3. Demo beats | 20 | — | |
 | 4. Role-aware aggregation lock | 5 | — | |
@@ -66,34 +96,48 @@ Deterministic rule-based, same posture as the AI Reply engine in Session 3B. Liv
 | 8. Inbox & contradiction | 22 | — | |
 | 9. AI Reply | 80 | — | |
 | 10. Listings spine | 75 | — | |
-| **12. Listings 4B** | **75** | **+75** | new this session — verification visual, private offerings seed + anchor, AI search behavior (7 query patterns × multiple invariants each), search determinism, extractQuery primitives, transparency chips, My Listings derivations (per-role), per-role headings |
-| **13. PRD Coverage** | **57** | **+5** | renumbered from 11; Session 4B advancement (2 routes × 2 assertions + aggregate) |
-| **Total** | **1004** | **+87** | |
-
-## One justification logged
-
-**`assignedAgentIds?: string[]` field added to `Listing` type.** Not a new entity — a field on an existing one. Per the build rule "no new entity types without explicit justification logged":
-
-The PRD explicitly describes broker→agent listing distribution as a core feature ("Brokers and Realtors can send listings to all agents / selected agents..."). The data model needs to record that distribution. A new entity (DistributionRecord, like a join table) would be the schema-purist approach; an array field on Listing is the pragmatic prototype representation. It translates cleanly to a backend relation table when wired (the field becomes a relation). Going with the field. Logged here for the record.
+| 12. Listings 4B | 75 | — | |
+| **14. Share Listing** | **96** | **+96** | NEW — largest single-session verify section to date. Covers SHARE_RULES totality, demo anchor (Maria+Laurel→familyEndUser), mockup-anchor text fidelity, 4-pronged profile-variation proof, determinism, applyShareTone × 8 tones with forbidden-phrase guard, pairwise tone distinctness, per-tone greeting locks, smart-link determinism + input sensitivity, send action wiring (campaign + message), 4-file mockup anchor, Maria/Maria disambiguation, 5-channel coverage, send link integrity |
+| **15. PRD Coverage** | **62** | **+5** | renumbered from 13; Session 5A advancement (2 routes × 2 + aggregate) |
+| **Total** | **1113** | **+109** | |
 
 ## Demo walk (validated end-to-end)
 
-1. From `/agent/listings`, focus the search → type "2BR condo in BGC under 20M" → 4 gold-soft chips appear below: 2BR / Condo / BGC / ≤₱20M → results card shows 1 match (Premium 2BR Condo — BGC, ₱16.5M, 2.5% commission).
-2. Clear input → tap one of the category tiles, e.g. For Sale → For Sale page renders with two tabs. Developer Listings shows 6-card preview; tap to switch to Private Offerings.
-3. Private Offerings tab now shows 6-card preview with verification badges on each (sage / gold / terracotta visible). "See all →" link at top right.
-4. Tap "See all →" → `/agent/listings/for-sale/private` → 10 private offerings rendered. Verification filter chips show counts: All 10 / Verified 5 / Pending 3 / Unverified 2.
-5. Filter to "Unverified" → 2 cards visible: listing-private-talamban-lot and listing-private-fairview-house. Both with terracotta-deep ShieldAlert badges.
-6. Bottom of page: "Verification workflow ... ships in Session 9."
-7. Navigate to `/agent/my-listings` → "My Listings" heading + "Listings you own or have been assigned. Share with your buyers." subtitle. AISearchInput at top. All/Active/Archived chips (All 11 / Active 11 / Archived 0). Transaction-type chips (All types 11 / For Sale 10 / For Rent 1). 11 listing cards.
-8. Visit `/broker/my-listings` → "Listings I've distributed" heading. Action buttons on cards read "Send to 9 agents."
-9. Visit `/realtor/my-listings` → "Listings across my network" heading. Action buttons read "Send to network."
-10. Search "house and lot in Cebu with at least 3% commission" → transparency chips: House and Lot / Cebu / ≥3% comm → result list filtered correctly.
-11. Empty-state demo: search "studios with helipad" → "No listings match" + 4 suggestion chips. Tap "2BR condo in BGC under 20M" → search runs.
+1. From `/agent/listings`, tap For Sale → tap Developer Listings preview "See all" → tap Landmasters → tap Laurel Hills Estate → Unit Inventory loads with 6 units.
+2. Tap "Share to my pipeline" on unit-laurel-12a → routes to `/agent/listings/listing-laurel-12a/share`.
+3. **Share Listing main page** renders:
+   - Header: ← back / Share Listing / Preview →
+   - Hero card: gradient placeholder + "Laurel Hills Estate — Unit 12A" + "4BR House & Lot" + "Taguig City" + Developer Listing / For Sale badges + ₱18,500,000 + 3% Commission
+   - AI Generated Message: gold-soft panel with "✨ AI Generated Message · rule: familyEndUser" + Regenerate button. Textarea: "Hi Maria! Based on your budget and preference for a family-friendly home in Taguig..." + rule description below
+   - Tone: Friendly Agent · Language: English · Refine pills below
+   - 📎 Attach Files (4): [Brochure 2.4 MB · PDF] [Computation 480 KB · PDF] [Floor Plan 1.8 MB · JPG] [Location Map 256 KB · PDF] [+ Add More]
+   - Share via: 6 chips — Messenger (blue active) / WhatsApp / Instagram DM / SMS / Email / More
+   - Smart Link Created: `https://estatehq.ph/l/laurel-12a-XXXX` + Copy Link + QR code row
+   - Send to: [Maria Santos] active chip + other lead chips
+   - Sticky CTA: ✉️ **Send to Maria Santos** (sage-deep)
+4. Tap Refine → bottom sheet with 8 tones × 3 languages × Regenerate. Switch to "Professional Broker" → message regenerates: "Good day, Maria. Based on your budget..."
+5. Switch language to Tagalog → "Kumusta, Maria po! Based on your budget..." + Salamat closer.
+6. Tap Preview top-right → `/agent/listings/listing-laurel-12a/share/preview`.
+7. **Preview Message page** renders:
+   - Header: ← back / Preview Message / Eye via Messenger
+   - Canvas-sunken bubble area with faux sender row (avatar "MS" + "Maria Santos / Messenger · to Maria Santos")
+   - Sage-soft chat bubble with intro paragraph + inline listing card (gradient + "Laurel Hills Estate" + "4BR House & Lot" + ₱18,500,000 + "Near schools, malls and major roads.") + trailing paragraph + timestamp + sage-deep ✓✓
+   - Attachments (4) card with 4 file rows (PDF/JPG color-coded icons + Eye view affordance)
+   - "Files will be sent as attachments."
+   - Sticky: ✉️ Send Now (sage-deep) + ✏️ Edit Message (ghost)
+8. Tap Edit Message → returns to Share Listing.
+9. Tap Send to Maria Santos → ShareCampaign + ConversationMessage created; routes to `/agent/leads/lead-instagram-01?shared={campaignId}` → message appears in Maria's thread.
 
 Stop signal met across the board.
 
+## One framing question for Session 5B
+
+Per the surfaced ambiguity above: **does the AI file recommendation belong inside the Attach Files sheet (my instinct, naturally located when the agent opens the sheet) or as a sidebar/panel on the Share Listing main page (matching the mockup image 2 left side)?**
+
+My instinct: **inside the sheet.** The agent opens the sheet to choose files; the AI suggestion naturally surfaces at the top of the sheet ("✨ Based on Maria's last message, we suggest these files first"). This keeps the Share Listing page itself clean and matches the progressive-disclosure principle.
+
+The mockup shows it as a sidebar, but that mockup composition appears to be the desktop/educational layout (the bottom row of mockup image 2 shows the actual mobile sheet without the sidebar). Confirming the routing call.
+
 ---
 
-**Next:** Session 5A — Share Listing + Preview Message. The marquee mockup-matching session. The visual fidelity bar is the mockup itself; the engineering is Session 3B+4A composed (channel selection, AI message generation, attachment chips, smart link generation, file engagement tracking). Awaiting framing notes and one question:
-
-**Should Session 5A handle the broker/realtor variant of the Share flow** (broker shares listing to selected agents with the AI-recommended-agents pick — a separate but parallel surface), **or scope only to the agent's Share-with-buyer flow** matching the mockup exactly? The mockup is purely agent-perspective; the broker distribution flow is in the PRD but its UI mockup wasn't provided. My instinct is **agent-only in 5A** (match the mockup exactly; broker distribution is Session 7 work). Confirming.
+**Next:** Session 5B — Attach Files sheet + Smart Link tracking + File Engagement strip + AI file recommendation. The second half of the Share flow surface block. After 5B, Session 5C covers Site Visit Booking (#24) and Deals Pipeline (#25). Awaiting framing.

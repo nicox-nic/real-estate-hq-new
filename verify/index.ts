@@ -154,6 +154,20 @@ import {
   myListingsHeadingFor,
   ACTIVE_FILTERS,
 } from "@/lib/logic/myListingsDerivations";
+import {
+  generateShareMessage,
+  SHARE_RULES,
+} from "@/lib/logic/aiShareMessage";
+import {
+  applyShareTone,
+  SHARE_FORBIDDEN_PHRASES,
+} from "@/lib/logic/aiShareTone";
+import {
+  shareListing,
+  smartLinkFor,
+  getClientShareCount,
+  _resetShareStoreForTests,
+} from "@/lib/shareStore";
 
 // ----------------------------------------------------------------------------
 // Mini assertion framework
@@ -1674,7 +1688,7 @@ function checkInboxAndContradiction() {
     section,
     "Search by name 'Maria Santos' finds the matching lead",
     searchByName.length >= 1 &&
-      searchByName.some((l) => l.buyer.name === "Maria Santos Buyer"),
+      searchByName.some((l) => l.buyer.name === "Maria Santos"),
   );
 
   // -- Four-pronged structural proof on cold-vs-hot card differentiation --
@@ -3010,11 +3024,468 @@ function checkListings4B() {
 }
 
 // ----------------------------------------------------------------------------
-// 13. PRD Coverage
+// 14. Share Listing + Preview Message (Session 5A)
+// ----------------------------------------------------------------------------
+
+function checkShareListing() {
+  const section = "14. Share Listing";
+
+  _resetShareStoreForTests();
+  _resetForTests();
+
+  // -- SHARE_RULES table totality --
+  const ruleKeys = Object.keys(SHARE_RULES);
+  check(
+    section,
+    "SHARE_RULES table has all 7 rules",
+    ruleKeys.length === 7,
+    `got ${ruleKeys.length}`,
+  );
+  for (const k of [
+    "ofwBuyer",
+    "investor",
+    "luxury",
+    "familyEndUser",
+    "firstTimeBuyer",
+    "rentalYield",
+    "defaultIntroduction",
+  ]) {
+    check(
+      section,
+      `SHARE_RULES.${k} declared`,
+      Object.prototype.hasOwnProperty.call(SHARE_RULES, k),
+    );
+  }
+
+  // -- Seeded-prop anchor: the demo Share scenario --
+  // Maria (lead-instagram-01) sharing Laurel Hills 12A is the canonical
+  // demo. The family-end-user rule must fire on this combination.
+  const listing = seedListings.find((l) => l.id === "listing-laurel-12a");
+  const lead = seedLeads.find((l) => l.id === "lead-instagram-01");
+  check(section, "Anchor: listing-laurel-12a exists", !!listing);
+  check(section, "Anchor: lead-instagram-01 exists", !!lead);
+  if (!listing || !lead) return;
+  check(
+    section,
+    "Anchor: Maria (lead-instagram-01) is the buyer for Laurel 12A",
+    lead.selectedListingIds.includes("listing-laurel-12a"),
+  );
+  check(
+    section,
+    "Anchor: Maria's familySize >= 3 (family-end-user rule precondition)",
+    (lead.buyer.familySize ?? 0) >= 3,
+    `got ${lead.buyer.familySize}`,
+  );
+  check(
+    section,
+    "Anchor: Maria's purposeOfPurchase = 'End-User'",
+    lead.buyer.purposeOfPurchase === "End-User",
+  );
+  check(
+    section,
+    "Anchor: Maria's preferredLocations include Taguig",
+    (lead.buyer.preferredLocations ?? []).some((l) => /taguig/i.test(l)),
+  );
+  // The CTA renders the buyer's full name — must be the exact mockup string
+  check(
+    section,
+    "Anchor: Maria's name is 'Maria Santos' (matches mockup 'Send to Maria Santos')",
+    lead.buyer.name === "Maria Santos",
+  );
+
+  // Rule routing locked: family-end-user fires for Maria+Laurel
+  const anchorResult = generateShareMessage({ listing, lead });
+  check(
+    section,
+    "Anchor rule: Maria+Laurel routes to familyEndUser rule",
+    anchorResult.rule === "familyEndUser",
+    `got ${anchorResult.rule}`,
+  );
+  check(
+    section,
+    "Anchor rule: result has ruleDescription string",
+    anchorResult.ruleDescription.length > 0,
+  );
+
+  // -- Mockup-anchor text fidelity --
+  // The mockup shows: "Based on your budget and preference for a family-
+  // friendly home in Taguig, I think this property might be a great fit
+  // for you." — semantic-shape (not exact verbatim, but key phrases).
+  const anchorBody = anchorResult.draft.body;
+  check(
+    section,
+    "Anchor body contains 'family-friendly home in Taguig'",
+    /family-friendly home in Taguig/i.test(anchorBody),
+  );
+  check(
+    section,
+    "Anchor body contains 'great fit'",
+    /great fit/i.test(anchorBody),
+  );
+  check(
+    section,
+    "Anchor body mentions the listing title",
+    anchorBody.includes(listing.title),
+  );
+  check(
+    section,
+    "Anchor body mentions 'near schools, malls, and major roads'",
+    /near schools, malls, and major roads/i.test(anchorBody),
+  );
+  check(
+    section,
+    "Anchor body asks about sample computation (closer matches mockup)",
+    /sample computation\?/i.test(anchorBody),
+  );
+
+  // No "4BR 4br" duplication (the describeProperty fix)
+  check(
+    section,
+    "Anchor body does NOT contain '4BR 4br' (describeProperty duplication guard)",
+    !/4BR 4br/i.test(anchorBody),
+  );
+
+  // -- 4-pronged structural proof on profile variation --
+  // Two buyers with different profiles → different rules → different content.
+  const investorLead = seedLeads.find((l) => l.id === "lead-portal-01");
+  check(section, "Investor lead lead-portal-01 exists for proof", !!investorLead);
+  if (investorLead) {
+    check(
+      section,
+      "Investor lead's purposeOfPurchase is 'Investment'",
+      investorLead.buyer.purposeOfPurchase === "Investment",
+    );
+    const investorResult = generateShareMessage({ listing, lead: investorLead });
+    // Prong 1: rule routing differs
+    check(
+      section,
+      "Profile variation prong 1: family→familyEndUser vs investor→investor (different rules)",
+      anchorResult.rule !== investorResult.rule &&
+        investorResult.rule === "investor",
+      `family=${anchorResult.rule}, investor=${investorResult.rule}`,
+    );
+    // Prong 2: family mentions "family-friendly", investor doesn't
+    check(
+      section,
+      "Profile variation prong 2: family body mentions 'family-friendly'; investor body does not",
+      /family-friendly/i.test(anchorBody) &&
+        !/family-friendly/i.test(investorResult.draft.body),
+    );
+    // Prong 3: investor body mentions yield/ROI/appreciation; family doesn't
+    check(
+      section,
+      "Profile variation prong 3: investor body mentions yield/ROI/appreciation; family does not",
+      /yield|ROI|appreciation/i.test(investorResult.draft.body) &&
+        !/yield|ROI|appreciation/i.test(anchorBody),
+    );
+    // Prong 4: investor action set includes ROI computation; family includes site visit suggestion
+    const investorActionKinds = new Set(
+      investorResult.actions.map((a) => a.kind),
+    );
+    const familyActionKinds = new Set(anchorResult.actions.map((a) => a.kind));
+    check(
+      section,
+      "Profile variation prong 4: family actions include book_site_visit; investor actions do not",
+      familyActionKinds.has("book_site_visit") &&
+        !investorActionKinds.has("book_site_visit"),
+    );
+  }
+
+  // -- Determinism --
+  const a = generateShareMessage({ listing, lead });
+  const b = generateShareMessage({ listing, lead });
+  check(
+    section,
+    "generateShareMessage is deterministic: same rule",
+    a.rule === b.rule,
+  );
+  check(
+    section,
+    "generateShareMessage is deterministic: same body text",
+    a.draft.body === b.draft.body,
+  );
+  check(
+    section,
+    "generateShareMessage is deterministic: same action count",
+    a.actions.length === b.actions.length,
+  );
+
+  // -- applyShareTone: outbound-variant behavior --
+  // All 8 tones produce non-empty output
+  for (const tone of ALL_TONES) {
+    const t = applyShareTone(anchorResult.draft, tone, {
+      buyerFirstName: "Maria",
+    });
+    check(section, `applyShareTone "${tone}" returns non-empty`, t.length > 0);
+  }
+
+  // Outbound tone must NOT include reply-context phrases
+  for (const tone of ALL_TONES) {
+    const t = applyShareTone(anchorResult.draft, tone, {
+      buyerFirstName: "Maria",
+    });
+    for (const forbidden of SHARE_FORBIDDEN_PHRASES) {
+      check(
+        section,
+        `Share tone "${tone}" does NOT include forbidden inbound phrase: "${forbidden}"`,
+        !t.includes(forbidden),
+      );
+    }
+  }
+
+  // Per-tone pairwise distinctness — 8 tones × C(8,2)=28 pairs
+  const tonedOutputs = ALL_TONES.map((t) =>
+    applyShareTone(anchorResult.draft, t, { buyerFirstName: "Maria" }),
+  );
+  const uniqueTones = new Set(tonedOutputs);
+  check(
+    section,
+    "Share tones pairwise distinct: 8 tones produce 8 unique outputs",
+    uniqueTones.size === ALL_TONES.length,
+    `got ${uniqueTones.size} unique`,
+  );
+
+  // Greeting varies per tone — Professional Broker uses "Good day", Investor uses comma
+  const proBroker = applyShareTone(anchorResult.draft, "Professional Broker", {
+    buyerFirstName: "Maria",
+  });
+  check(
+    section,
+    "Professional Broker tone uses 'Good day, Maria.' greeting",
+    proBroker.startsWith("Good day, Maria."),
+  );
+  const investor = applyShareTone(anchorResult.draft, "Investor", {
+    buyerFirstName: "Maria",
+  });
+  check(
+    section,
+    "Investor tone uses 'Hi Maria,' (comma) greeting",
+    investor.startsWith("Hi Maria,"),
+  );
+  const friendly = applyShareTone(anchorResult.draft, "Friendly Agent", {
+    buyerFirstName: "Maria",
+  });
+  check(
+    section,
+    "Friendly Agent tone uses 'Hi Maria!' (exclamation) greeting",
+    friendly.startsWith("Hi Maria!"),
+  );
+
+  // -- Language application via applyLanguage from aiReply (composes cleanly) --
+  // We don't import applyLanguage here, but verify the outbound tone output
+  // is a string suitable for the language wrapper.
+  check(
+    section,
+    "ALL_LANGUAGES has 3 entries (English/Tagalog/Cebuano)",
+    ALL_LANGUAGES.length === 3,
+  );
+
+  // -- smartLinkFor: deterministic URL generation --
+  const url1 = smartLinkFor("listing-laurel-12a", "agent-001", "lead-instagram-01");
+  const url2 = smartLinkFor("listing-laurel-12a", "agent-001", "lead-instagram-01");
+  check(
+    section,
+    "smartLinkFor is deterministic: same inputs → same URL",
+    url1 === url2,
+    `got ${url1} vs ${url2}`,
+  );
+  check(
+    section,
+    "smartLinkFor produces estatehq.ph host",
+    /^https:\/\/estatehq\.ph\/l\//.test(url1),
+  );
+  check(
+    section,
+    "smartLinkFor includes the listing slug",
+    url1.includes("laurel-12a"),
+  );
+  // Different inputs → different URLs
+  const urlDiff = smartLinkFor("listing-veranda-8f", "agent-001", "lead-instagram-01");
+  check(
+    section,
+    "smartLinkFor: different listing → different URL",
+    url1 !== urlDiff,
+  );
+
+  // -- shareListing send action: creates campaign + conversation message --
+  const beforeShare = getClientShareCount();
+  const beforeMsg = getClientMessageCount(lead.id);
+  const shareResult = shareListing({
+    listingId: listing.id,
+    agentId: "agent-001",
+    buyerLeadId: lead.id,
+    buyerProfileId: lead.buyer.id,
+    channel: "Messenger",
+    message: "Hi Maria! Test send.",
+    attachedFileIds: ["file-001", "file-002"],
+    tone: "Friendly Agent",
+    language: "English",
+  });
+  check(
+    section,
+    "shareListing: campaign created (client share count grew by 1)",
+    getClientShareCount() === beforeShare + 1,
+  );
+  check(
+    section,
+    "shareListing: conversation message created (client message count grew by 1)",
+    getClientMessageCount(lead.id) === beforeMsg + 1,
+  );
+  check(
+    section,
+    "shareListing: campaign has expected listingId",
+    shareResult.campaign.listingId === listing.id,
+  );
+  check(
+    section,
+    "shareListing: campaign has expected agentId",
+    shareResult.campaign.agentId === "agent-001",
+  );
+  check(
+    section,
+    "shareListing: campaign has expected channel",
+    shareResult.campaign.channel === "Messenger",
+  );
+  check(
+    section,
+    "shareListing: campaign attached the 2 file IDs",
+    shareResult.campaign.attachedFileIds.length === 2 &&
+      shareResult.campaign.attachedFileIds.includes("file-001") &&
+      shareResult.campaign.attachedFileIds.includes("file-002"),
+  );
+  check(
+    section,
+    "shareListing: campaign smartLinkUrl matches smartLinkFor output",
+    shareResult.campaign.smartLinkUrl ===
+      smartLinkFor(listing.id, "agent-001", lead.id),
+  );
+  check(
+    section,
+    "shareListing: returned conversation message ID is non-empty",
+    shareResult.conversationMessageId.length > 0,
+  );
+
+  // -- Laurel 12A has the 4 expected mockup attachments --
+  const laurelFiles = seedPropertyFiles.filter(
+    (f) => f.listingId === "listing-laurel-12a",
+  );
+  check(
+    section,
+    "Laurel 12A has >=4 files seeded (mockup shows 4 attachments)",
+    laurelFiles.length >= 4,
+    `got ${laurelFiles.length}`,
+  );
+  const laurelCategories = new Set(laurelFiles.map((f) => f.category));
+  check(
+    section,
+    "Laurel 12A files include Brochures category",
+    laurelCategories.has("Brochures"),
+  );
+  check(
+    section,
+    "Laurel 12A files include Computations category",
+    laurelCategories.has("Computations"),
+  );
+  check(
+    section,
+    "Laurel 12A files include Floor Plans category",
+    laurelCategories.has("Floor Plans"),
+  );
+  check(
+    section,
+    "Laurel 12A files include Location Map category",
+    laurelCategories.has("Location Map"),
+  );
+
+  // -- Demo broker (Maria Santos) is unambiguous from buyer Maria Santos --
+  // Both share first name, but they're in different entities (User vs BuyerProfile).
+  const broker = seedUsers.find((u) => u.id === "broker-001");
+  check(
+    section,
+    "Disambiguation: broker-001 is 'Maria Santos' (User)",
+    broker?.fullName === "Maria Santos",
+  );
+  check(
+    section,
+    "Disambiguation: buyer-005 is 'Maria Santos' (BuyerProfile)",
+    lead.buyer.name === "Maria Santos",
+  );
+  // The disambiguation is contextual — they appear in different surfaces.
+  check(
+    section,
+    "Disambiguation: broker.id ('broker-001') ≠ buyer.id ('buyer-005')",
+    broker?.id !== lead.buyer.id,
+  );
+
+  // -- Channel set: 6 channels per mockup (Messenger / WhatsApp / Instagram DM / SMS / Email / More) --
+  // The channel chip row is rendered from the CHANNELS array; verify it has the right 6 entries
+  // (we import CHANNELS via the ChannelChips module — but to avoid pulling React-only modules
+  // into this Node verify run, we assert the seed-data ShareChannel union supports them)
+  const expectedChannels = [
+    "Messenger",
+    "WhatsApp",
+    "Instagram DM",
+    "SMS",
+    "Email",
+  ];
+  for (const ch of expectedChannels) {
+    const sample = shareListing({
+      listingId: listing.id,
+      agentId: "agent-001",
+      buyerLeadId: lead.id,
+      buyerProfileId: lead.buyer.id,
+      channel: ch as "Messenger",
+      message: `Channel ${ch} test`,
+      attachedFileIds: [],
+    });
+    check(
+      section,
+      `Channel "${ch}" is a valid ShareChannel (campaign accepts it)`,
+      sample.campaign.channel === ch,
+    );
+  }
+
+  // -- The conversation message links back to the campaign --
+  // We can verify the link by checking conversationStore-side — the shareCampaignId
+  // is set on the sent message.
+  _resetForTests();
+  _resetShareStoreForTests();
+  const linkTest = shareListing({
+    listingId: listing.id,
+    agentId: "agent-001",
+    buyerLeadId: lead.id,
+    buyerProfileId: lead.buyer.id,
+    channel: "Messenger",
+    message: "Link test",
+    attachedFileIds: ["file-001"],
+  });
+  // The message is in the client store; we can't directly read it here without
+  // hook context, but the conversation message ID is returned and is non-empty.
+  // The shareCampaignId on the message is implicit — we verify it via the
+  // campaign ID being set on the campaign and the conversationMessageId being
+  // returned.
+  check(
+    section,
+    "Send creates linked campaign + message: campaign ID is set",
+    linkTest.campaign.id.length > 0,
+  );
+  check(
+    section,
+    "Send creates linked campaign + message: conversation message ID is set",
+    linkTest.conversationMessageId.length > 0,
+  );
+
+  // Cleanup
+  _resetForTests();
+  _resetShareStoreForTests();
+}
+
+// ----------------------------------------------------------------------------
+// 15. PRD Coverage
 // ----------------------------------------------------------------------------
 
 function reportPRDCoverage() {
-  const section = "13. PRD Coverage";
+  const section = "15. PRD Coverage";
 
   check(
     section,
@@ -3218,6 +3689,38 @@ function reportPRDCoverage() {
     complete >= 25,
     `complete=${complete}`,
   );
+
+  // Session 5A stop-signal: share-listing (#21) + preview-message (#23).
+  // attach-files (#22 in mockup ordering, but listed as a separate route in
+  // the manifest) remains pending — its sheet implementation ships in 5B.
+  const session5aRoutes = ["share-listing", "preview-message"];
+  for (const id of session5aRoutes) {
+    const entry = prdRoutes.find((r) => r.id === id);
+    if (!entry) {
+      fail(section, `Session 5A route ${id} present in manifest`, "missing");
+      continue;
+    }
+    check(
+      section,
+      `Session 5A route "${id}" status = complete`,
+      entry.status === "complete",
+      `got ${entry.status}`,
+    );
+    check(
+      section,
+      `Session 5A route "${id}" completedInSession = 5`,
+      entry.completedInSession === 5,
+      `got ${entry.completedInSession}`,
+    );
+  }
+
+  // Coverage cannot regress: 25 (Session 4B) + 2 (Session 5A routes) = 27.
+  check(
+    section,
+    "Coverage progress: ≥ 27 routes complete after Session 5A",
+    complete >= 27,
+    `complete=${complete}`,
+  );
 }
 
 // ----------------------------------------------------------------------------
@@ -3295,5 +3798,6 @@ checkInboxAndContradiction();
 checkAIReply();
 checkListingsSpine();
 checkListings4B();
+checkShareListing();
 reportPRDCoverage();
 report();

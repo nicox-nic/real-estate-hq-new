@@ -490,6 +490,13 @@ export interface ConversationMessage {
   sentAt: string;
   // For AI-suggested replies that haven't been sent yet
   isDraft?: boolean;
+  /**
+   * Set when this message was originated by a Share Listing send. Links the
+   * conversation thread back to the ShareCampaign for engagement tracking.
+   * Field, not entity — pragmatic prototype representation; backend wiring
+   * later swaps to a relation table.
+   */
+  shareCampaignId?: string;
 }
 
 // ----------------------------------------------------------------------------

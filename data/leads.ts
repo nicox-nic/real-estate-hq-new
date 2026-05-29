@@ -161,7 +161,7 @@ export const seedLeads: Lead[] = [
     id: "lead-instagram-01",
     buyer: {
       id: "buyer-005",
-      name: "Maria Santos Buyer",
+      name: "Maria Santos",
       mobile: "+63 917 333 0001",
       email: "maria.buyer@example.com",
       isOFW: false,

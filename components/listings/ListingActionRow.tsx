@@ -1,8 +1,10 @@
 "use client";
 
+import Link from "next/link";
 import { Share2, Send, Users } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import type { UserRole } from "@/lib/types";
+import { cn } from "@/lib/cn";
 
 /**
  * ListingActionRow — concentrates all role-aware action button decisions.
@@ -28,15 +30,25 @@ export interface ListingActionRowProps {
   compact?: boolean;
   /** Hide the secondary "Details" button. */
   hideDetails?: boolean;
+  /**
+   * If provided, the primary action renders as a Next.js Link.
+   * Otherwise renders as a button using onPrimary.
+   */
+  primaryHref?: string;
   onPrimary?: () => void;
   onDetails?: () => void;
 }
+
+const PRIMARY_LINK_CLASS =
+  "inline-flex items-center justify-center gap-2 rounded-2xl font-medium transition-all whitespace-nowrap " +
+  "h-8 px-3 text-xs bg-ink text-ink-inverse hover:bg-ink/90 shadow-soft active:shadow-none";
 
 export function ListingActionRow({
   role,
   agentsUnderCount,
   compact,
   hideDetails,
+  primaryHref,
   onPrimary,
   onDetails,
 }: ListingActionRowProps) {
@@ -49,15 +61,26 @@ export function ListingActionRow({
       data-primary-label={label}
       className="flex items-center gap-2"
     >
-      <Button
-        variant="primary"
-        size="sm"
-        onClick={onPrimary}
-        data-testid="listing-primary-action"
-      >
-        <Icon className="h-4 w-4" />
-        {label}
-      </Button>
+      {primaryHref ? (
+        <Link
+          href={primaryHref}
+          data-testid="listing-primary-action"
+          className={cn(PRIMARY_LINK_CLASS)}
+        >
+          <Icon className="h-4 w-4" />
+          {label}
+        </Link>
+      ) : (
+        <Button
+          variant="primary"
+          size="sm"
+          onClick={onPrimary}
+          data-testid="listing-primary-action"
+        >
+          <Icon className="h-4 w-4" />
+          {label}
+        </Button>
+      )}
       {!compact && !hideDetails ? (
         <Button variant="ghost" size="sm" onClick={onDetails}>
           Details

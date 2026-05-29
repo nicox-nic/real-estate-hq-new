@@ -271,6 +271,11 @@ function MyListingCard({
           role={role}
           agentsUnderCount={agentsUnderCount}
           hideDetails
+          primaryHref={
+            role === "Agent"
+              ? `/${role.toLowerCase()}/listings/${listing.id}/share`
+              : undefined
+          }
         />
       </div>
     </li>

@@ -81,6 +81,8 @@ export interface SendMessageInput {
   fromAISuggestion?: boolean;
   /** File IDs attached to the message. */
   attachmentIds?: string[];
+  /** If this message originated from a Share Listing send, the campaign ID. */
+  shareCampaignId?: string;
 }
 
 /**
@@ -107,6 +109,9 @@ export function sendMessage(input: SendMessageInput): ConversationMessage {
     attachmentIds: input.attachmentIds,
     ...(input.tone ? { tone: input.tone } : {}),
     ...(input.language ? { language: input.language } : {}),
+    ...(input.shareCampaignId
+      ? { shareCampaignId: input.shareCampaignId }
+      : {}),
     isDraft: false,
   };
 

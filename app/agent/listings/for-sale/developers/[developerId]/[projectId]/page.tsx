@@ -21,6 +21,7 @@ import {
   DEMO_BROKER_ID,
   DEMO_REALTOR_ID,
   seedDevelopers,
+  seedListings,
   seedProjects,
   seedUnits,
   seedUsers,
@@ -224,6 +225,17 @@ function UnitCard({
   role: ReturnType<typeof useCurrentRole>;
   agentsUnderCount: number;
 }) {
+  // Find the Listing whose unitId points at this Unit. The Share Listing
+  // page takes a listingId, not a unitId, so we resolve the back-reference.
+  const listing = React.useMemo(
+    () => seedListings.find((l) => l.unitId === unit.id),
+    [unit.id],
+  );
+  const shareHref =
+    role === "Agent" && listing
+      ? `/${role.toLowerCase()}/listings/${listing.id}/share`
+      : undefined;
+
   return (
     <li
       data-testid={`unit-card-${unit.id}`}
@@ -313,6 +325,7 @@ function UnitCard({
           role={role}
           agentsUnderCount={agentsUnderCount}
           hideDetails
+          primaryHref={shareHref}
         />
       </div>
     </li>

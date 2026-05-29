@@ -11,7 +11,7 @@ export const seedSiteVisits: SiteVisit[] = [
   {
     id: "sv-001",
     leadId: "lead-instagram-01",
-    buyerName: "Maria Santos Buyer",
+    buyerName: "Maria Santos",
     listingId: "listing-laurel-12a",
     listingTitle: "Laurel Hills Estate — Unit 12A",
     agentId: "agent-001",
