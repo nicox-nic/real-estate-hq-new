@@ -1,99 +1,76 @@
-# Session 2 Report — Auth & Onboarding
-**For external reviewer · 2025-05-29**
+# Session 3A — Report
 
-## Status
+**Branch:** `main`
+**Stop signal:** met. Three surfaces complete (#8, #11, #13), Q2 implementation (Option Z) live and verify-locked, demo walk path end-to-end functional.
 
-- TypeScript: **clean**
-- Build: **clean** (`next build` — 14 static routes prerendered)
-- Verify: **614 / 614 passed** (was 528; +86 in this session — 17 added in Section 6 Auth/Schemas, 17 in Section 7 PRD progress, and the rest were already in place but assertion targets shifted)
-- PRD coverage: **8 complete · 0 scaffolded · 38 pending of 46**
-- Commit and push: **executed at session close** (see hash below)
-- Decisions from Session 1: **Q1 noted for Session 6, Q2 noted for Session 3A** — both will be honored when those sessions arrive
+## At a glance
+- **TypeScript:** clean
+- **Build:** 15 routes, no errors (was 14 after Session 2)
+- **Verify:** 673 / 673 passed (+59 from Session 2's 614)
+- **PRD coverage:** 11 complete · 1 scaffolded · 34 pending of 46
+- **Walkability:** agent's daily flow is now end-to-end — dashboard → lead inbox → buyer profile → archive cold inquiry, all routes wired, all surfaces render real seed data
 
-## Summary
+## What shipped (Session 3A's three completes + one scaffold)
 
-Auth flow is walkable end-to-end. All seven Session 2 routes plus the forgot-password stub are at `status = complete`. Session 1's pattern stack (Tailwind tokens, AppShell, primitives) ported cleanly with no architectural surprises. The registration-schemas approach pulled three large form layouts into a single typed declaration plus one generic renderer, which is the right shape for verify to introspect.
+| Route | Status | Notes |
+|---|---|---|
+| `/agent` — Agent Dashboard | **complete** | Greeting + briefing, 4 KPIs, Money on the Way feature card with progress donut, Active deals compact panel, Recent activity, AI suggestions |
+| `/agent/leads` — Lead Inbox | **complete** | 8 PRD chips + "qualified only" toggle (ON by default) + search + bulk-archive. Cold inquiries hidden by default; cold cards differ from hot on 4 structural axes (low-weight predicate, badge variant, tags presence, engine category) |
+| `/agent/leads/[leadId]/profile` — Buyer Profile | **complete** | Hero + AI insight + recommended next action + **visible scoring breakdown panel with engine and editorial side-by-side**, full per-rule disclosure |
+| `/agent/leads/[leadId]` — Buyer Conversation | **scaffolded** | Minimal thread for walkability. Full AI Suggested Reply panel, tone selector, attach composer ship in Session 3B |
 
-Details in `SESSION_LOG.md`.
+## Three items for your review
 
-## Items flagged for the reviewer
+### 1. Disagreement icon form factor (Q2 Option Z implementation)
+Implemented as a small `AlertCircle` (Lucide), ~14px, `text-gold-deep`, sitting next to the score chip on the inbox row. Tooltip via `title=`: "The AI engine and editorial assessment disagree on this lead. Tap to see the full breakdown." Hidden on low-weight cards (the row is already de-emphasized). On the Buyer Profile hero, the same disagreement is also flagged with a small gold-tinted "Engine disagrees" pill, and the breakdown panel carries a full banner above the per-rule list.
 
-Three carry-forwards and one count change.
+This decision becomes the **reapply pattern for every future engine-vs-editorial divergence** unless overridden. Ratify or correct.
 
-### 1. Manifest count change: 45 → 46
+### 2. Listing-context-aware scoring (engineering note)
+Caught a real diagnostic during this session: when the dashboard or inbox scores a lead in bulk, the caller doesn't have a per-lead listing prop, so `scoreLead({ buyer })` cannot evaluate the budget-match signal (worth +20 of the 100-point max). Maria Santos's anchor assertion failed at 80/100 until I added `buildListingPriceMap(listings)` + `scoreLeadWithContext(lead, priceById)` that look up the lead's first selected listing's price.
 
-The Session 2 framing said "Include the Forgot Password stub (#37)." The original scope contract was firm on 45. I interpreted the framing as authorization to add it as the 46th entry; bumped `EXPECTED_ROUTE_COUNT` to 46 and updated the manifest's header comment. If you'd prefer to fold forgot-password into an existing entry's `expectedElements` rather than carry it as a distinct route, the rollback is a one-line revert in the manifest and removal of the page (no other code references it as a peer). I'm reporting rather than asking-and-blocking — let me know if you want the rollback.
+**Pattern recorded:** for any future engine call in a multi-lead context, build the price map once and thread it through. This now applies in `computeAgentDashboardKPIs`, `generateAgentAISuggestions`, `filterInbox`, `isQualified`, `isLowWeightCard`, `hasEngineEditorialDisagreement`, `LeadCard`, and the Buyer Profile.
 
-### 2. PRD field interpretations to ratify
+This is an interpretation call. The PRD says budget-match is a scoring signal; it doesn't say "use the first interested listing" specifically. If a lead has multiple selected listings or a target range with no specific listing, this pattern picks the first one. Flagged for review.
 
-The PRD's registration sections describe the fields prosaically rather than as a precise list. I made specific interpretation choices that should be reviewed:
+### 3. Editorial bypass in `isQualified`
+A lead the agent has flagged Hot/Warm/Nurture editorially is never hidden by the qualified-only toggle, even with engine score 0. Without this, `lead-contradiction-01` (editorial Hot, engine 0) would have been invisible by default — defeating Q2's purpose, since the agent could never even see the disagreement icon to investigate. The icon does the disambiguation at the row level; the toggle keeps the lead visible.
 
-- **Agent "where you work under"** — PRD lists "Licensed Broker / Realtor / Realty Company / Developer Sales Team" as four options. Modeled as a 4-value select. Same set of parent-detail fields requested regardless of which option is picked (name, license, company, contact, email). PRD says license is "if applicable" — I marked the parent-license field as **required** for simplicity. If the parent is a Realty Company or Developer Team without a personal broker license, agents would enter the company registration number there. Flagging in case you want it conditional.
-- **Broker "Number of agents under broker"** — free text, hint "Approximate is fine." PRD doesn't constrain to integer.
-- **Broker PRC license number** — marked **optional** (PRD says "if applicable").
-- **Realtor broker license number** — marked **optional** (PRD says "if also licensed broker").
-- **Consent** — single checkbox covering both Terms and Privacy. PRD treats them together. If they need to be separate, that's polish.
+Verify locks the behaviour: "Contradiction lead appears in default inbox view." Ratify or correct.
 
-If any of these are wrong, flag and I'll adjust in the next session's preamble.
+## Four engineering carry-forwards (no review required, just documenting)
 
-### 3. Prototype-only UX that should not surprise Session 9
+- **Money on the Way placement: Option A (feature card).** As approved. ₱600,000/month default target exposed as `DEFAULT_MONTHLY_TARGET_PHP` for the eventual Settings → Earnings target override (Session 9 or later).
+- **AI suggestions are rule-driven, not free-form.** Four rules in priority order (contradiction → hot-needs-reply → cold-with-engagement → site-visit-soon), deterministic, static text per rule. Session 9 polish can decide whether to upgrade to template-and-fill or live LLM.
+- **Active deal compact-row pattern recorded.** Session 5C's Deals Pipeline should reuse `ActiveDealRow`'s exact shape (rounded-xl border, 9×9 icon tile, two-line text, right-aligned `StatusBadge` + optional "Blocked" indicator).
+- **Expected 404s from Buyer Profile** — `/agent/listings/[id]` (Session 4), `/agent/leads/[id]` full thread (Session 3B), `/agent/deals/[id]` (Session 5), `/agent/commissions/upcoming` (Session 6). All four explicitly anticipated.
 
-The session-2 framing told me to call out things Session 9 polish shouldn't have to re-investigate. Two carry-forwards:
+## Verify suite delta (614 → 673)
 
-- **Face ID button is purely visual.** The button calls `router.push("/agent")` directly with no biometric API. There is no WebAuthn integration, no platform-credential prompt. If real biometric auth is wanted at productionization, that's a real implementation, not a polish task. **Logged.**
-- **Upload Documents file picker reads metadata only.** The OS file picker opens, the file is read for `name`, `size`, `format`, and a visual chip is rendered. Nothing leaves the browser; no `PropertyFile` records are created in the seed; the document URL strings in seed data point to placeholder paths. The "Use sample document" link below each row exists so the demo doesn't get stuck without an OS file picker. **Logged.**
+| Section | Asserts | Delta | Notes |
+|---|---|---|---|
+| 1. FK Integrity | 403 | — | |
+| 2. Structural invariants | 70 | — | |
+| 3. Demo beats | 20 | — | |
+| 4. Role-aware aggregation lock | 5 | — | |
+| 5. Commission Tracking mockup | 27 | — | tensions still recorded; Q1 (Option B) lands in Session 6 |
+| 6. Auth flow & schemas | 69 | — | |
+| **7. Dashboard math** | **29** | **+29** | new this session, includes 2 seeded-prop anchors |
+| **8. Inbox & contradiction** | **22** | **+22** | new this session, includes 4-pronged structural proof |
+| **9. PRD Coverage** | **28** | **+8** | renumbered from 7, asserts Session 3A advancement |
+| **Total** | **673** | **+59** | |
 
-## Verify snapshot
+## Demo walk (validated end-to-end)
+1. Open `/` → log in as Alyssa Garcia (demo agent shortcut).
+2. Land on `/agent`. See "Good morning, Alyssa. You have 2 hot buyers, 2 site visits booked, and 4 active deals." 4 KPIs match the briefing. Money on the Way shows ₱112,500 paid + ₱367,500 pending + ₱56,250 on hold, donut shows 80% to target.
+3. Scroll: see 4 active deals (Laurel Hills 12A first, Contract Signed badge, no "Blocked"). Riverside on the bottom with Documents Submitted + Blocked indicator. Recent activity feed mixes AI / leads / site visits. AI suggestions show contradiction lead (Roy Aguilar) for review.
+4. Tap "My Leads" in sidebar → `/agent/leads`. Default view shows qualified leads only. Roy Aguilar's row has the gold `AlertCircle` icon next to the editorial Hot badge.
+5. Tap Maria Santos's row → `/agent/leads/lead-instagram-01/profile`. Hero shows editorial Hot, AI insight quote, recommended next action ("Ready to book a site visit"). Scoring breakdown shows Engine: 100/100 Hot and Editorial: 95/100 Hot — every rule triggered with sage check marks.
+6. Back to inbox → tap Roy Aguilar's row → `/agent/leads/lead-contradiction-01/profile`. Hero shows Editorial Hot + "Engine disagrees" gold pill + AI insight. Scoring breakdown shows Engine: 0/100 Cold and Editorial: 82/100 Hot, with the gold "Engine and editorial disagree" banner above the per-rule list. Every rule untriggered.
+7. Back to inbox → toggle "Show qualified only" OFF. JM Garcia's cold inquiry appears with reduced opacity, smaller avatar, no rich tags. Tap "Select" → check JM Garcia → "Archive to Nurturing" → toast: "Moved 1 lead to Nurturing." JM Garcia disappears.
 
-```
-✓ 1. FK Integrity              403/403 passed
-✓ 2. Structural invariants      70/ 70 passed
-✓ 3. Demo beats                 20/ 20 passed
-✓ 4. Role-aware aggregation      5/  5 passed
-✓ 5. Commission Tracking mockup 27/ 27 passed
-  ◦ (recorded gross-vs-net values unchanged from Session 1)
-✓ 6. Auth flow & schemas        69/ 69 passed       ← NEW
-✓ 7. PRD Coverage               20/ 20 passed       ← grew from 3 to 20
-  ◦ complete=8, scaffolded=0, pending=38 (of 46)
+Stop signal met across the board.
 
-TOTAL: 614 passed, 0 failed
-```
+---
 
-## File diff (Session 2 additions)
-
-```
-app/
-├── page.tsx                                  rewritten — real login form
-├── agent/page.tsx                            new placeholder
-├── broker/page.tsx                           new placeholder
-├── realtor/page.tsx                          new placeholder
-└── auth/
-    ├── layout.tsx                            new
-    ├── signup/page.tsx                       new — role select
-    ├── register/
-    │   ├── agent/page.tsx                    new — wraps RegistrationForm
-    │   ├── broker/page.tsx                   new
-    │   └── realtor/page.tsx                  new
-    ├── upload-documents/page.tsx             new
-    ├── pending/page.tsx                      new — handles 4 status states
-    └── forgot-password/page.tsx              new — stub
-
-components/
-├── auth/
-│   └── RegistrationForm.tsx                  new — generic schema renderer
-└── ui/
-    └── Form.tsx                              new — Input/Select/Textarea/FieldGroup/Stepper/FileUploadRow
-
-lib/
-├── logic/
-│   └── accountAccess.ts                      new — landingDestination, canAccessRoleFeatures
-└── registrationSchemas.ts                    new — typed schemas for 3 roles
-
-verify/
-├── index.ts                                  extended — Section 6 (69 asserts) + Section 7 expansion (17 new asserts)
-└── prdManifest.ts                            updated — 8 routes → complete, +1 forgot-password, count 45 → 46
-```
-
-## Awaiting
-
-Your review and Session 3 framing. The Q2 decision (Option Z — subtle disagreement icon for lead-row engine/editorial scoring) will drive a small piece of the lead-inbox design in Session 3A. Mention any framing notes for the Agent Dashboard composition; the PRD specifies 3-5 KPI cards, an active deals panel, recent activity feed, and contextual AI suggestions, but the relative emphasis (e.g., is "Money on the Way" prominent on the dashboard or only inside Commissions?) deserves a quick steer.
+**Next:** Session 3B — Buyer Conversation (full AI Suggested Reply panel, tone selector, attach composer) + the remaining agent surfaces (My Listings, Money on the Way detail, Notifications, AI Studio, Integrations, Settings) per the 9-session plan. Awaiting your go-ahead.

@@ -90,6 +90,23 @@ import {
   landingDestination,
   canAccessRoleFeatures,
 } from "@/lib/logic/accountAccess";
+import {
+  computeAgentDashboardKPIs,
+  computeMoneyOnTheWay,
+  selectActiveDeals,
+  generateAgentAISuggestions,
+  generateBriefingSentence,
+} from "@/lib/logic/dashboardDerivations";
+import {
+  filterInbox,
+  isQualified,
+  isLowWeightCard,
+  hasEngineEditorialDisagreement,
+  badgeVariantForLead,
+  chipCounts,
+  buildListingPriceMap,
+  scoreLeadWithContext,
+} from "@/lib/logic/leadInboxDerivations";
 
 // ----------------------------------------------------------------------------
 // Mini assertion framework
@@ -1180,11 +1197,494 @@ function checkAuthAndSchemas() {
 }
 
 // ----------------------------------------------------------------------------
-// 7. PRD Coverage
+// 7. Agent dashboard math & seeded-prop-anchors (Session 3A)
+// ----------------------------------------------------------------------------
+
+function checkDashboardMath() {
+  const section = "7. Dashboard math";
+
+  const SEED_REFERENCE_ISO = "2025-05-29T08:00:00.000Z";
+
+  // -- KPI derivations are pure functions of seed --
+  const kpis = computeAgentDashboardKPIs(
+    DEMO_AGENT_ID,
+    seedLeads,
+    seedSiteVisits,
+    seedDeals,
+    SEED_REFERENCE_ISO,
+    seedListings,
+  );
+
+  // Expected values (hand-computed):
+  //   newLeadsToday: 0 (no agent-001 leads created on 2025-05-29)
+  //   hotBuyers: 2 (lead-instagram-01 score=100, lead-tiktok-01 score=95)
+  //   siteVisitsBooked: 2 (sv-001 May 31 Confirmed, sv-002 May 30 Reminder Sent)
+  //   activeDeals: 4 (deals 001/002/003/006 all assigned to agent-001 in active stages)
+  check(
+    section,
+    "KPI: newLeadsToday for demo agent",
+    kpis.newLeadsToday === 0,
+    `got ${kpis.newLeadsToday}`,
+  );
+  check(
+    section,
+    "KPI: hotBuyers for demo agent (engine ≥ 70)",
+    kpis.hotBuyers === 2,
+    `got ${kpis.hotBuyers}`,
+  );
+  check(
+    section,
+    "KPI: siteVisitsBooked for demo agent (future, confirmed-ish)",
+    kpis.siteVisitsBooked === 2,
+    `got ${kpis.siteVisitsBooked}`,
+  );
+  check(
+    section,
+    "KPI: activeDeals for demo agent",
+    kpis.activeDeals === 4,
+    `got ${kpis.activeDeals}`,
+  );
+
+  // -- Money on the Way derives from engine, not hardcoded --
+  const demoAgent = seedUsers.find((u) => u.id === DEMO_AGENT_ID);
+  if (!demoAgent) {
+    fail(section, "Demo agent user record present", "not found");
+    return;
+  }
+  const viewer = { userId: demoAgent.id, role: demoAgent.role };
+  const motw = computeMoneyOnTheWay(seedCommissions, viewer);
+  // From Session 1 recorded values:
+  //   paidThisPeriod = 112,500
+  //   pendingPayout  = 367,500 (For Approval + For Closing + For Payout)
+  //   onHold         = 56,250
+  //   monthlyTarget  = 600,000
+  //   progress = (112500 + 367500) / 600000 = 0.80 → 80%
+  check(
+    section,
+    "MotW: paidThisPeriod matches engine kpis.paidToDate",
+    motw.paidThisPeriod === 112_500,
+    `got ${motw.paidThisPeriod}`,
+  );
+  check(
+    section,
+    "MotW: pendingPayout matches engine kpis.pendingPayout",
+    motw.pendingPayout === 367_500,
+    `got ${motw.pendingPayout}`,
+  );
+  check(
+    section,
+    "MotW: onHold matches engine kpis.onHold",
+    motw.onHold === 56_250,
+    `got ${motw.onHold}`,
+  );
+  check(
+    section,
+    "MotW: monthlyTarget at default ₱600,000",
+    motw.monthlyTargetPHP === 600_000,
+    `got ${motw.monthlyTargetPHP}`,
+  );
+  check(
+    section,
+    "MotW: progressPercent = 80",
+    motw.progressPercent === 80,
+    `got ${motw.progressPercent}`,
+  );
+
+  // Donut segments sum to monthly target (with "To target" filling the remainder)
+  const segmentSum = motw.segments.reduce((s, seg) => s + seg.value, 0);
+  check(
+    section,
+    "MotW: donut segments sum to monthlyTarget (paid+pending+onHold+toTarget)",
+    segmentSum === motw.monthlyTargetPHP + motw.onHold,
+    `got ${segmentSum}, expected ${motw.monthlyTargetPHP + motw.onHold} (target + onHold-as-separate)`,
+  );
+
+  // -- Active deals selector returns the active subset, ordered by updatedAt desc --
+  const activeDeals = selectActiveDeals(DEMO_AGENT_ID, seedDeals);
+  check(
+    section,
+    "Active deals selector returns 4 active deals for demo agent",
+    activeDeals.length === 4,
+    `got ${activeDeals.length}`,
+  );
+  check(
+    section,
+    "Active deals: deal-001 (Contract Signed) is included",
+    activeDeals.some((d) => d.dealId === "deal-001"),
+  );
+  check(
+    section,
+    "Active deals: deal-004 (Released) is excluded",
+    !activeDeals.some((d) => d.dealId === "deal-004"),
+  );
+  check(
+    section,
+    "Active deals: deal-006 flagged with blocking documents",
+    activeDeals.find((d) => d.dealId === "deal-006")?.hasBlockingDocuments ===
+      true,
+  );
+
+  // -- AI suggestions surface the contradiction lead for review --
+  const suggestions = generateAgentAISuggestions(
+    DEMO_AGENT_ID,
+    seedLeads,
+    seedSiteVisits,
+    SEED_REFERENCE_ISO,
+    3,
+    seedListings,
+  );
+  const contradictionSuggestion = suggestions.find((s) =>
+    s.id.includes(CONTRADICTION_LEAD_ID),
+  );
+  check(
+    section,
+    "AI suggestion: contradiction lead surfaced for review",
+    !!contradictionSuggestion,
+    contradictionSuggestion ? contradictionSuggestion.title : "missing",
+  );
+
+  // -- Briefing sentence is deterministic given the KPI shape --
+  const briefing = generateBriefingSentence("Alyssa", kpis);
+  check(
+    section,
+    "Briefing sentence references hot buyers count",
+    briefing.includes("2 hot buyer"),
+    briefing,
+  );
+  check(
+    section,
+    "Briefing sentence references active deals count",
+    briefing.includes("4 active deal"),
+    briefing,
+  );
+
+  // ===== SEEDED-PROP-ANCHORS =====
+  // Lock the state of one demo-critical lead and one demo-critical deal
+  // so future sessions can't silently break demo narratives.
+
+  // Anchor 1: lead-instagram-01 (Maria Santos, hot, site-visit-booked).
+  const mariaLead = seedLeads.find((l) => l.id === "lead-instagram-01");
+  if (!mariaLead) {
+    fail(section, "Anchor: lead-instagram-01 exists", "missing");
+  } else {
+    check(
+      section,
+      "Anchor: Maria Santos lead is Hot category",
+      mariaLead.category === "Hot Buyer",
+    );
+    check(
+      section,
+      "Anchor: Maria Santos editorial score = 95",
+      mariaLead.seedScore === 95,
+      `got ${mariaLead.seedScore}`,
+    );
+    check(
+      section,
+      "Anchor: Maria Santos site visit is booked",
+      mariaLead.buyer.hasBookedSiteVisit === true,
+    );
+    check(
+      section,
+      "Anchor: Maria Santos engine score reaches max (100) with listing context",
+      scoreLeadWithContext(mariaLead, buildListingPriceMap(seedListings))
+        .total === LEAD_SCORE_MAX,
+      `got ${scoreLeadWithContext(mariaLead, buildListingPriceMap(seedListings)).total}`,
+    );
+    check(
+      section,
+      "Anchor: Maria Santos is assigned to demo agent",
+      mariaLead.assignedAgentId === DEMO_AGENT_ID,
+    );
+  }
+
+  // Anchor 2: deal-001 (Laurel Hills 12A, For Closing, May 20)
+  const laurelDeal = seedDeals.find((d) => d.id === "deal-001");
+  if (!laurelDeal) {
+    fail(section, "Anchor: deal-001 exists", "missing");
+  } else {
+    check(
+      section,
+      "Anchor: deal-001 contract price = ₱8,500,000",
+      laurelDeal.contractPrice === 8_500_000,
+      `got ${laurelDeal.contractPrice}`,
+    );
+    check(
+      section,
+      "Anchor: deal-001 commission rate = 3%",
+      Math.abs(laurelDeal.commissionRate - 0.03) < 0.0001,
+    );
+    check(
+      section,
+      "Anchor: deal-001 stage = Contract Signed",
+      laurelDeal.stage === "Contract Signed",
+    );
+    check(
+      section,
+      "Anchor: deal-001 agent = demo agent",
+      laurelDeal.agentId === DEMO_AGENT_ID,
+    );
+    check(
+      section,
+      "Anchor: deal-001 buyer = Maria Santos",
+      laurelDeal.buyerName === "Maria Santos",
+    );
+    const laurelComm = seedCommissions.find((c) => c.id === "comm-001");
+    if (!laurelComm) {
+      fail(section, "Anchor: comm-001 exists", "missing");
+    } else {
+      check(
+        section,
+        "Anchor: comm-001 status = For Closing",
+        laurelComm.status === "For Closing",
+      );
+      check(
+        section,
+        "Anchor: comm-001 totalAmount = ₱255,000",
+        laurelComm.totalAmount === 255_000,
+        `got ${laurelComm.totalAmount}`,
+      );
+    }
+  }
+}
+
+// ----------------------------------------------------------------------------
+// 8. Lead Inbox & contradiction surfacing (Session 3A)
+// ----------------------------------------------------------------------------
+
+function checkInboxAndContradiction() {
+  const section = "8. Inbox & contradiction";
+
+  // -- Noise threshold gates the cold inquiry --
+  const noiseLead = seedLeads.find((l) => l.id === COLD_NOISE_LEAD_ID);
+  if (!noiseLead) {
+    fail(section, "Cold noise lead present", "missing");
+  } else {
+    check(
+      section,
+      "Cold noise lead: engine score < QUALIFIED_THRESHOLD",
+      !isQualified(noiseLead),
+      `engine=${scoreLead({ buyer: noiseLead.buyer }).total}`,
+    );
+    check(
+      section,
+      "Cold noise lead is hidden from default inbox view (qualifiedOnly=true, All)",
+      !filterInbox(seedLeads, {
+        chip: "All",
+        qualifiedOnly: true,
+        search: "",
+      }).some((l) => l.id === COLD_NOISE_LEAD_ID),
+    );
+    check(
+      section,
+      "Cold noise lead appears when qualifiedOnly=false",
+      filterInbox(seedLeads, {
+        chip: "All",
+        qualifiedOnly: false,
+        search: "",
+      }).some((l) => l.id === COLD_NOISE_LEAD_ID),
+    );
+    check(
+      section,
+      "Cold noise lead renders as low-weight card",
+      isLowWeightCard(noiseLead),
+    );
+  }
+
+  // -- Contradiction lead: engine disagrees with editorial --
+  const contradictionLead = seedLeads.find(
+    (l) => l.id === CONTRADICTION_LEAD_ID,
+  );
+  if (!contradictionLead) {
+    fail(section, "Contradiction lead present", "missing");
+  } else {
+    check(
+      section,
+      "Contradiction lead: editorial = Hot",
+      contradictionLead.seedScoreCategory === "Hot",
+    );
+    check(
+      section,
+      "Contradiction lead: engine = Cold",
+      scoreLead({ buyer: contradictionLead.buyer }).category === "Cold",
+    );
+    check(
+      section,
+      "Contradiction lead: hasEngineEditorialDisagreement() = true",
+      hasEngineEditorialDisagreement(contradictionLead),
+    );
+    // It IS qualified by editorial standards (seedScore=82), so it should
+    // appear in the default qualifiedOnly view — but Hot/Cold leads need
+    // editorial value (Hot) to render the row's badge. The actual icon
+    // rendering is locked in the LeadCard component; verify can only
+    // assert the data-side cause for the icon to appear.
+    check(
+      section,
+      "Contradiction lead appears in default inbox view",
+      filterInbox(seedLeads, {
+        chip: "All",
+        qualifiedOnly: true,
+        search: "",
+      }).some((l) => l.id === CONTRADICTION_LEAD_ID),
+      "Editorial-Hot label shows on row; engine-Cold drives the disagreement icon",
+    );
+  }
+
+  // -- Chip filters work correctly --
+  const allCount = filterInbox(seedLeads, {
+    chip: "All",
+    qualifiedOnly: false,
+    search: "",
+  }).length;
+  check(
+    section,
+    "All chip (qualifiedOnly=false) returns every seed lead",
+    allCount === seedLeads.length,
+    `got ${allCount}, expected ${seedLeads.length}`,
+  );
+
+  const hotChip = filterInbox(seedLeads, {
+    chip: "Hot",
+    qualifiedOnly: false,
+    search: "",
+  });
+  check(
+    section,
+    "Hot chip includes Maria Santos (engine Hot)",
+    hotChip.some((l) => l.id === "lead-instagram-01"),
+  );
+  check(
+    section,
+    "Hot chip includes contradiction lead (editorial Hot)",
+    hotChip.some((l) => l.id === CONTRADICTION_LEAD_ID),
+  );
+
+  const needsReplyChip = filterInbox(seedLeads, {
+    chip: "Needs Reply",
+    qualifiedOnly: false,
+    search: "",
+  });
+  check(
+    section,
+    "Needs Reply chip filters only leads with needsReply=true",
+    needsReplyChip.every((l) => l.needsReply),
+  );
+
+  const ofwChip = filterInbox(seedLeads, {
+    chip: "OFW",
+    qualifiedOnly: false,
+    search: "",
+  });
+  check(
+    section,
+    "OFW chip surfaces ≥1 lead",
+    ofwChip.length >= 1,
+    `got ${ofwChip.length}`,
+  );
+
+  const investorChip = filterInbox(seedLeads, {
+    chip: "Investor",
+    qualifiedOnly: false,
+    search: "",
+  });
+  check(
+    section,
+    "Investor chip surfaces ≥1 lead",
+    investorChip.length >= 1,
+    `got ${investorChip.length}`,
+  );
+
+  const siteVisitChip = filterInbox(seedLeads, {
+    chip: "Site Visit",
+    qualifiedOnly: false,
+    search: "",
+  });
+  check(
+    section,
+    "Site Visit chip surfaces ≥1 lead",
+    siteVisitChip.length >= 1,
+    `got ${siteVisitChip.length}`,
+  );
+
+  const financingChip = filterInbox(seedLeads, {
+    chip: "Financing",
+    qualifiedOnly: false,
+    search: "",
+  });
+  check(
+    section,
+    "Financing chip surfaces ≥1 lead",
+    financingChip.length >= 1,
+    `got ${financingChip.length}`,
+  );
+
+  // -- Search filters by name, tag, category --
+  const searchByName = filterInbox(seedLeads, {
+    chip: "All",
+    qualifiedOnly: false,
+    search: "Maria Santos",
+  });
+  check(
+    section,
+    "Search by name 'Maria Santos' finds the matching lead",
+    searchByName.length >= 1 &&
+      searchByName.some((l) => l.buyer.name === "Maria Santos Buyer"),
+  );
+
+  // -- Four-pronged structural proof on cold-vs-hot card differentiation --
+  // The cold-noise lead vs Maria's lead must differ on multiple axes.
+  if (noiseLead) {
+    const mariaLead = seedLeads.find((l) => l.id === "lead-instagram-01");
+    if (mariaLead) {
+      // 1. Visual weight via isLowWeightCard
+      check(
+        section,
+        "4-pronged proof #1: low-weight differs between cold-noise and Maria",
+        isLowWeightCard(noiseLead) !== isLowWeightCard(mariaLead),
+        `noise=${isLowWeightCard(noiseLead)}, maria=${isLowWeightCard(mariaLead)}`,
+      );
+      // 2. Badge variant differs
+      check(
+        section,
+        "4-pronged proof #2: badge variant differs",
+        badgeVariantForLead(noiseLead) !== badgeVariantForLead(mariaLead),
+        `noise=${badgeVariantForLead(noiseLead)}, maria=${badgeVariantForLead(mariaLead)}`,
+      );
+      // 3. Tag presence differs (noise has 1 generic, Maria has 2+ rich)
+      const noiseTags = noiseLead.tags ?? [];
+      const mariaTags = mariaLead.tags ?? [];
+      check(
+        section,
+        "4-pronged proof #3: tags-row content differs (noise sparse, Maria rich)",
+        noiseTags.length <= 1 && mariaTags.length >= 2,
+        `noise=${noiseTags.length}, maria=${mariaTags.length}`,
+      );
+      // 4. Engine category differs
+      const noiseCat = scoreLead({ buyer: noiseLead.buyer }).category;
+      const mariaCat = scoreLead({ buyer: mariaLead.buyer }).category;
+      check(
+        section,
+        "4-pronged proof #4: engine category differs",
+        noiseCat !== mariaCat,
+        `noise=${noiseCat}, maria=${mariaCat}`,
+      );
+    }
+  }
+
+  // -- chipCounts behaves --
+  const counts = chipCounts(seedLeads, true);
+  check(
+    section,
+    "chipCounts.All ≤ chipCounts.All(qualifiedOnly=false)",
+    counts.All <= chipCounts(seedLeads, false).All,
+  );
+}
+
+// ----------------------------------------------------------------------------
+// 9. PRD Coverage
 // ----------------------------------------------------------------------------
 
 function reportPRDCoverage() {
-  const section = "7. PRD Coverage";
+  const section = "9. PRD Coverage";
 
   check(
     section,
@@ -1253,6 +1753,55 @@ function reportPRDCoverage() {
     section,
     "Coverage progress: ≥ 8 routes complete after Session 2",
     complete >= 8,
+    `complete=${complete}`,
+  );
+
+  // Session 3A stop-signal: 3 new routes promoted to complete.
+  // agent-dashboard, leads-inbox, buyer-profile. buyer-conversation is
+  // promoted to "scaffolded" (full impl in Session 3B).
+  const session3aCompleteRoutes = [
+    "agent-dashboard",
+    "leads-inbox",
+    "buyer-profile",
+  ];
+  for (const id of session3aCompleteRoutes) {
+    const entry = prdRoutes.find((r) => r.id === id);
+    if (!entry) {
+      fail(section, `Session 3A route ${id} present in manifest`, "missing");
+      continue;
+    }
+    check(
+      section,
+      `Session 3A route "${id}" status = complete`,
+      entry.status === "complete",
+      `got ${entry.status}`,
+    );
+    check(
+      section,
+      `Session 3A route "${id}" completedInSession = 3`,
+      entry.completedInSession === 3,
+      `got ${entry.completedInSession}`,
+    );
+  }
+
+  // buyer-conversation: scaffolded
+  const buyerConv = prdRoutes.find((r) => r.id === "buyer-conversation");
+  if (!buyerConv) {
+    fail(section, "buyer-conversation entry present", "missing");
+  } else {
+    check(
+      section,
+      "Session 3A: buyer-conversation status = scaffolded",
+      buyerConv.status === "scaffolded",
+      `got ${buyerConv.status}`,
+    );
+  }
+
+  // Coverage progress: ≥ 11 complete after Session 3A.
+  check(
+    section,
+    "Coverage progress: ≥ 11 routes complete after Session 3A",
+    complete >= 11,
     `complete=${complete}`,
   );
 }
@@ -1327,5 +1876,7 @@ checkDemoBeats();
 checkRoleAwareLock();
 checkCommissionMockup();
 checkAuthAndSchemas();
+checkDashboardMath();
+checkInboxAndContradiction();
 reportPRDCoverage();
 report();

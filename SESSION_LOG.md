@@ -5,6 +5,86 @@ Newest sessions at top.
 
 ---
 
+## Session 3A — Agent Dashboard + Lead Inbox + Buyer Profile
+**Date:** 2025-05-29
+**Branch:** main
+**Scope:** First three agent surfaces (#8, #11, #13) brought to "complete." Q2's Option Z (subtle disagreement icon + full breakdown in Buyer Profile) is now live and verify-locked. Demo walk path is end-to-end functional: dashboard → tap hot lead → buyer profile → view scoring breakdown → return to inbox → archive cold inquiry.
+
+### What shipped
+- **`components/ui/DonutChart.tsx`** — Recharts-based donut wrapper. `DonutChart` (segments, center label/value, size, thickness) + `DonutLegend` (segments + optional pre-formatted values array). Center hole renders a big number + small label (e.g. "80% / To target"). Used by Money on the Way; reusable in Session 6's Commission Tracking breakdown.
+- **`lib/logic/dashboardDerivations.ts`** — pure derivations the dashboard JSX consumes:
+  - `computeAgentDashboardKPIs(agentId, leads, siteVisits, deals, refIso, listings)` → `{ newLeadsToday, hotBuyers, siteVisitsBooked, activeDeals }`. Hot = engine score ≥ 70 (now with listing-price context). Active deal stages are an explicit `Set` for FK-style discipline.
+  - `computeMoneyOnTheWay(commissions, viewer, monthlyTarget=600000)` → `{ paidThisPeriod, pendingPayout, onHold, monthlyTargetPHP, progressPercent, segments[] }`. Wraps `commissionAggregation.computeKPIs`. Segments include `Paid`/`Pending payout`/`On hold`/`To target` (the gap to target rendered as a muted ghost segment so the donut visually reads as a progress ring).
+  - `selectActiveDeals(agentId, deals, limit)` → compact card data including `hasBlockingDocuments`.
+  - `generateAgentAISuggestions(...)` — **deterministic, rule-driven**, not free-form. 4 rules in priority order: (1) hot-buyer awaiting reply, (2) engine-vs-editorial contradiction, (3) cold lead with engagement signals, (4) site visit in next 24h.
+  - `generateBriefingSentence(firstName, kpis)` — pluralisation-correct one-liner under the greeting.
+- **`lib/logic/leadInboxDerivations.ts`** — the noise design:
+  - `buildListingPriceMap(listings)` + `scoreLeadWithContext(lead, priceById)` — passes a lead's first selected listing's price to `scoreLead`. **Without this, the budget-match signal (worth +20) can never fire from inbox/dashboard callers**, since they're scoring leads in bulk and have no per-lead listing prop. This was a real diagnostic flush — Maria's anchor failed at 80/100 until I threaded listing context through.
+  - `isQualified(lead, priceById)` — engine ≥ 20 OR editorial is Hot/Warm/Nurture. **Editorial bypass is critical**: an editorially-Hot lead with no engine signals shouldn't be hidden from default view; the disagreement icon does the work of warning the agent that the engine disagrees.
+  - `isLowWeightCard(lead, priceById)` — engine < 20. Drives the four-pronged structural cold-vs-hot proof.
+  - `hasEngineEditorialDisagreement(lead, priceById)` — engine ≠ editorial. Powers the disagreement icon.
+  - `filterInbox({ chip, qualifiedOnly, search, listingPriceById })` — composes chip + qualified + search. The 8 PRD chips: All / Hot / New / Site Visit / Needs Reply / Financing / OFW / Investor. Hot chip is engine-OR-editorial (Option Z again).
+  - `chipCounts(leads, qualifiedOnly, priceById)` — for the chip badges.
+  - `badgeVariantForLead(lead)` — returns editorial variant (engine value flows through the icon, not the badge).
+- **`components/leads/LeadCard.tsx`** — full vs low-weight rendering:
+  - Full: 10×10 avatar, two-line preview, tags row (3 max + "Needs reply" pill), badge.
+  - Low: 8×8 avatar, single-line truncate preview, source tag only, opacity-60 with hover-restore. Reduced motion, reduced visual presence.
+  - **Disagreement icon (Q2 Option Z) form factor: `AlertCircle` from Lucide, 3.5×3.5 (≈14px), `text-gold-deep`, positioned next to score chip.** `title=` attribute provides "The AI engine and editorial assessment disagree on this lead. Tap to see the full breakdown." for hover/screen-reader users. Hidden on low-weight cards (the row is already de-emphasized). Decision logged for reapply to every future engine-vs-editorial divergence.
+  - `data-testid`, `data-weight`, `data-badge-variant` attributes so verify can lock visual semantics from outside.
+  - Bulk-selection mode flips checkboxes on; click becomes select instead of nav.
+- **`app/agent/leads/page.tsx`** — Lead Inbox. Search input with clear button, "Show qualified only" toggle (default ON), 8 filter chips with counts. Bulk-select toggles a footer action bar fixed `bottom-16 lg:bottom-0` so it doesn't clash with the mobile nav. Archive action moves selected IDs to a client-side `archivedIds: Set<string>`, shows a sage-tinted confirmation toast that auto-dismisses after 3.5s. Tail summary explains the cold-inquiry hiding so the agent understands what they're not seeing.
+- **`app/agent/leads/[leadId]/profile/page.tsx`** — Buyer Profile.
+  - Hero: avatar, editorial badge, "Engine disagrees" chip when applicable, AI insight banner.
+  - Recommended next action via `recommendNextAction(lead, engineScore)` — 7 rules covering the contradiction case, upcoming site visit, hot+ready, asked-for-computation-no-visit, brochure-opened-but-cold, and a default qualify prompt.
+  - **Scoring breakdown panel** — the place where the contradiction story fully lands. Engine total/category and editorial total/category shown side-by-side, separated by a vertical rule. Per-rule list: `CheckCircle2` (sage) for triggered rules, `Circle` (subtle) for untriggered; `+N` (sage) for earned points, `0 / weight` (subtle) for missed. Each rule has a `detail` line (e.g. "Buyer budget ₱15M – ₱20M" for the budget-match rule). Contradiction banner appears above the list when engine ≠ editorial, in the gold-soft palette.
+  - Profile field grid (8 fields, italic "Not provided" for empties).
+  - Interested listings linking to `/agent/listings/[id]` — **expected 404 until Session 4**.
+  - Engagement timeline (shares + file opens).
+  - Right column: site visits, conversation summary (links to `/agent/leads/[id]`), stat box (last reply, message count, total opens).
+- **`app/agent/leads/[leadId]/page.tsx`** — Buyer Conversation **placeholder**. Header card with View Profile button, message bubbles (buyer left, agent right, AI draft in gold-soft with "AI draft · ready to send" tag), and a dashed-border note that the full thread (AI Suggested Reply panel, tone selector, attach composer) ships in Session 3B. Promoted to `status: "scaffolded"` in the PRD manifest.
+- **`app/agent/page.tsx`** — Agent Dashboard. Replaces Session 2 placeholder.
+  - Greeting + briefing sentence (deterministic from KPI shape).
+  - 4-up KPI grid (New leads today gold, Hot buyers terracotta, Site visits sage, Active deals navy). Hints adapt to zero-states.
+  - **Money on the Way feature card** (Option A confirmed). 180px donut with "80% / To target" in the hole; 2×2 number grid (Paid this period sage, Pending payout gold, On hold navy, Monthly target muted); legend with formatted PHP values below. "View details →" links to `/agent/commissions/upcoming` (expected 404 until Session 6).
+  - Active deals compact panel — **the reusable row pattern Session 5C should pick up**. `ActiveDealRow` is a `<Link>` with rounded-xl border, 9×9 icon tile, two-line text, right-aligned `StatusBadge` + optional "Blocked" marker. Pattern recorded.
+  - Recent activity feed — AI activity / new lead / site-visit entries sorted by most-recent.
+  - AI suggestions right column — up to 3 cards via `AISuggestionCard`.
+- **Verify Section 7 (Dashboard math, 29 asserts)** — KPI exact values, MotW math (paid=112,500 / pending=367,500 / onHold=56,250 / progress=80% / segment-sum invariant), `selectActiveDeals` returns the 4 expected for demo agent, AI suggestion includes contradiction lead. Plus **two seeded-prop anchors**:
+  - **Anchor 1: lead-instagram-01 (Maria Santos)** — Hot category, editorial 95, site visit booked, engine score = 100 with listing context, assigned to demo agent.
+  - **Anchor 2: deal-001 (Laurel Hills 12A)** — ₱8.5M contract, 3% rate, Contract Signed, demo agent, buyer Maria Santos. Linked `comm-001`: For Closing status, ₱255,000 total.
+- **Verify Section 8 (Inbox & contradiction, 22 asserts)** — cold-noise is hidden in default view, appears when toggle off, is low-weight; contradiction lead editorial=Hot, engine=Cold, has disagreement, appears in default view (editorial bypass); all 8 chips empirically work; search by name works; **four-pronged cold-vs-hot structural proof**: low-weight differs, badge variant differs, tags presence differs, engine category differs.
+- **Verify Section 9 (PRD Coverage)** — renumbered from 7 to 9. Session 3A's three new completes asserted (agent-dashboard, leads-inbox, buyer-profile all `completedInSession: 3`). buyer-conversation asserted `scaffolded`. Coverage progress: 11+ complete after Session 3A.
+
+### Decisions and engineering notes (carry-forwards)
+- **Q2 implemented as Option Z.** Disagreement icon form factor: small `AlertCircle` (Lucide), ~14px, `text-gold-deep`, sitting next to the score chip on the row, with a tooltip via `title=`. Hidden on low-weight cards (the row is already de-emphasized). Reapplies to every future engine-vs-editorial disagreement.
+- **Money on the Way placement: Option A (feature card).** The agent dashboard's emotional rallying point is the donut with "80% / To target" in the hole. Default target: ₱600,000/month. Exposed as `DEFAULT_MONTHLY_TARGET_PHP` for the eventual Settings → Earnings target override (Session 9 or later).
+- **Listing-context-aware scoring.** Without `listingPriceById` threaded through inbox/dashboard callers, `scoreLead` cannot evaluate the budget-match signal (worth +20). This was a real diagnostic — Maria Santos's anchor failed at 80/100 until I added `scoreLeadWithContext` and `buildListingPriceMap`. **Pattern for any future engine call in a multi-lead context: build the price map once, pass through.**
+- **AI suggestions are rule-driven, not template/LLM.** Four rules in priority order, deterministic. Static text per rule. Session 9 polish should decide whether to upgrade to template-and-fill (e.g. tone-aware messages) or live LLM. For now the determinism is a feature — verify can lock the contradiction lead surfaces.
+- **Active deal compact-row pattern recorded.** `ActiveDealRow` shape: `rounded-xl border hover:border-gold/40`, 9×9 icon tile, two-line text, right-aligned `StatusBadge` + optional indicator. Session 5C's Deals Pipeline should reuse this exact shape so the agent's mental model carries over.
+- **Editorial bypass in `isQualified`.** A lead the agent has flagged Hot/Warm/Nurture editorially is never hidden from the default qualified view, even with engine score 0. The disagreement icon does the disambiguation. Without this, the contradiction lead would have been invisible by default, defeating Q2's purpose.
+- **Bulk-archive is client-only state.** Archived IDs live in `useState<Set<string>>`. Real backend persistence ships later. Toast confirms what happened. No-undo by design at this stage.
+- **Expected 404s from Buyer Profile** until later sessions complete the targets:
+  - `/agent/listings/[id]` — Session 4
+  - `/agent/leads/[id]` (full thread, currently scaffolded) — Session 3B
+  - `/agent/deals/[id]` — Session 5
+  - `/agent/commissions/upcoming` — Session 6
+- **Briefing sentence deterministic.** Reads "Good morning, {firstName}. You have 2 hot buyers, 2 site visits booked, and 4 active deals." for the demo agent. Pluralisation handled. Verify locks the structure.
+- **Seed reference ISO** centralized at `"2025-05-29T08:00:00.000Z"` in the dashboard page. Same string used in `LeadCard`'s relative-time formatter and verify Section 7. If we ever advance the demo date, three call sites change in lockstep.
+
+### Verify
+- TypeScript: clean (`tsc --noEmit`).
+- Build: 15 routes (was 14 after Session 2). All static except the two dynamic lead routes (`[leadId]` and `[leadId]/profile`).
+- Verify: **673 / 673 passed** (added 59 new asserts; 614 → 673). 9 sections.
+
+### Stop signal met
+- ✅ Three surfaces render with real data.
+- ✅ Contradiction icon present on `lead-contradiction-01`'s row.
+- ✅ Buyer Profile breakdown shows engine + editorial side-by-side with full per-rule disclosure.
+- ✅ Lead Inbox noise design empirically works (cold-noise hidden, low-weight differs from hot on 4 axes).
+- ✅ Agent's daily flow walkable: `/agent` → tap Maria's lead → `/agent/leads/lead-instagram-01/profile` → see 100/100 score with budget match triggered → back to `/agent/leads` → toggle "Show qualified only" off → see cold noise + JM Garcia → select → archive → toast confirms.
+
+---
+
 ## Session 2 — Auth & Onboarding
 **Date:** 2025-05-29
 **Branch:** main
