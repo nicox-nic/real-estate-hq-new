@@ -2,10 +2,11 @@
  * PRD COVERAGE MANIFEST
  * ===========================================================================
  *
- * The full scope contract: 45 distinct routes/pages.
+ * The full scope contract: 46 distinct routes/pages.
  *
  * Math: 36 PRD-listed screens + 6 additional listing-category pages
- *       + 1 distribution route + 1 notifications + 1 leaderboard = 45 exactly.
+ *       + 1 distribution route + 1 notifications + 1 leaderboard
+ *       + 1 forgot-password (added Session 2) = 46.
  *
  * The PRD's 36 screens, in order:
  *   1.  Splash / Login
@@ -86,76 +87,113 @@ export const prdRoutes: PRDRoute[] = [
     expectedElements: [
       "Brand mark with Real Estate HQ wordmark",
       "Tagline",
-      "Login or role selector entry point",
+      "Email and password fields",
+      "Sign in button",
+      "Face ID affordance (visual stub)",
+      "Forgot password link",
+      "Create account footer link",
     ],
-    status: "scaffolded",
-    notes: "Placeholder splash exists. Login fields added in Session 2.",
+    status: "complete",
+    completedInSession: 2,
   },
   {
     id: "create-account",
     title: "Create Account",
     route: "/auth/signup",
     expectedElements: [
-      "Mobile / email / password fields",
-      "Role selector (Agent / Broker / Realtor)",
-      "Consent and continue CTA",
+      "Role selector cards (Agent / Broker / Realtor)",
+      "Per-role description and feature highlights",
+      "Continue CTA (disabled until selection)",
     ],
-    status: "pending",
+    status: "complete",
+    completedInSession: 2,
   },
   {
     id: "register-agent",
     title: "Agent Registration Form",
     route: "/auth/register/agent",
     expectedElements: [
-      "Full Name, Mobile, Email",
-      "Agent Number, Specializations, Years of Experience",
-      "Parent broker/realtor selector",
+      "Full name, email, mobile, password fields",
+      "Agent / accreditation number",
+      "Affiliation type selector (Broker / Realtor / Realty / Developer)",
+      "Affiliation details (parent name, license, company, contact, email)",
+      "Office location",
+      "Terms and Privacy consent",
     ],
-    status: "pending",
+    status: "complete",
+    completedInSession: 2,
   },
   {
     id: "register-broker",
     title: "Broker Registration Form",
     route: "/auth/register/broker",
     expectedElements: [
-      "Broker License Number, PRC License Number",
-      "Company Name, Business Address",
-      "Number of Agents Under Broker",
+      "Full name, email, mobile, password fields",
+      "Broker license number, PRC license number (optional)",
+      "Realty / brokerage name, business address",
+      "Office location, number of agents under broker",
+      "Terms and Privacy consent",
     ],
-    status: "pending",
+    status: "complete",
+    completedInSession: 2,
   },
   {
     id: "register-realtor",
     title: "Realtor Registration Form",
     route: "/auth/register/realtor",
     expectedElements: [
-      "Realtor Membership Number",
-      "Board or Association",
-      "Company Name and Business Address",
+      "Full name, email, mobile, password fields",
+      "Realtor membership number, board / association",
+      "Broker license number (optional)",
+      "Realty / brokerage name, business address, office location",
+      "Terms and Privacy consent",
     ],
-    status: "pending",
+    status: "complete",
+    completedInSession: 2,
   },
   {
     id: "upload-documents",
     title: "Upload Documents",
     route: "/auth/upload-documents",
     expectedElements: [
-      "Government ID upload",
-      "License document upload",
-      "Selfie verification",
+      "Role-aware document list",
+      "File upload rows with picker, name, size, format icon, remove",
+      "Required vs optional indicators",
+      "Submit-for-verification CTA",
     ],
-    status: "pending",
+    status: "complete",
+    completedInSession: 2,
+    notes: "Prototype file picker; metadata-only, no real upload. Flagged in carry-forwards.",
   },
   {
     id: "pending-verification",
     title: "Pending Verification",
     route: "/auth/pending",
     expectedElements: [
-      "Status indicator",
-      "Expected timeline note",
+      "Status indicator and badge",
+      "Sub-state body (Pending / Verified / Needs More Documents / Rejected)",
+      "Stepper at step 4 of 4",
       "Support contact link",
+      "Re-upload affordance when status = Needs More Documents",
     ],
-    status: "pending",
+    status: "complete",
+    completedInSession: 2,
+    notes: "Handles all 4 AccountStatus sub-states via ?status= query param.",
+  },
+  {
+    id: "forgot-password",
+    title: "Forgot Password",
+    route: "/auth/forgot-password",
+    expectedElements: [
+      "Email input field",
+      "Send reset link CTA",
+      "Confirmation state ('Reset link sent')",
+      "Back to sign in link",
+    ],
+    status: "complete",
+    completedInSession: 2,
+    notes:
+      "Added per Session 2 framing. Brings the manifest count from 45 to 46. Flagged in session report.",
   },
 
   // ----- Dashboards (Session 3 / 7) -----
@@ -589,4 +627,4 @@ export const prdRoutes: PRDRoute[] = [
 ];
 
 /** Stable count assertion target for verify. */
-export const EXPECTED_ROUTE_COUNT = 45;
+export const EXPECTED_ROUTE_COUNT = 46;

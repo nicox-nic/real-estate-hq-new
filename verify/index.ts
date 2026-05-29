@@ -77,7 +77,19 @@ import {
   computeBreakdown,
 } from "@/lib/logic/commissionAggregation";
 import { prdRoutes, EXPECTED_ROUTE_COUNT } from "./prdManifest";
-import type { LeadSource } from "@/lib/types";
+import type { LeadSource, AccountStatus } from "@/lib/types";
+import {
+  AGENT_SCHEMA,
+  BROKER_SCHEMA,
+  REALTOR_SCHEMA,
+  SCHEMAS_BY_ROLE,
+  requiredFieldCount,
+  requiredDocumentCount,
+} from "@/lib/registrationSchemas";
+import {
+  landingDestination,
+  canAccessRoleFeatures,
+} from "@/lib/logic/accountAccess";
 
 // ----------------------------------------------------------------------------
 // Mini assertion framework
@@ -967,11 +979,212 @@ function checkCommissionMockup() {
 }
 
 // ----------------------------------------------------------------------------
-// 6. PRD Coverage
+// 6. Auth flow & registration schemas (Session 2)
+// ----------------------------------------------------------------------------
+
+function checkAuthAndSchemas() {
+  const section = "6. Auth flow & schemas";
+
+  // -- Schema completeness per role --
+  // Each role schema covers all PRD-listed registration fields.
+  // PRD field counts (required) — see lib/registrationSchemas.ts header.
+  const expectedRequiredCounts = {
+    Agent: 14, // 13 listed + consent
+    Broker: 11, // 10 + consent (PRC license is optional)
+    Realtor: 11, // 10 + consent (broker license is optional)
+  };
+  for (const role of ["Agent", "Broker", "Realtor"] as const) {
+    const schema = SCHEMAS_BY_ROLE[role];
+    const count = requiredFieldCount(schema);
+    check(
+      section,
+      `${role} schema: required field count = ${expectedRequiredCounts[role]}`,
+      count === expectedRequiredCounts[role],
+      `got ${count}`,
+    );
+  }
+
+  // Specific PRD fields must be present per role (canonical checks):
+  function fieldIds(role: keyof typeof SCHEMAS_BY_ROLE): Set<string> {
+    return new Set(SCHEMAS_BY_ROLE[role].fields.map((f) => f.id));
+  }
+
+  // Agent fields (PRD §Registration → Agent)
+  const agentFields = fieldIds("Agent");
+  for (const fid of [
+    "fullName",
+    "email",
+    "mobile",
+    "password",
+    "confirmPassword",
+    "agentNumber",
+    "parentType",
+    "parentName",
+    "parentLicense",
+    "parentCompany",
+    "parentContact",
+    "parentEmail",
+    "officeLocation",
+    "consent",
+  ]) {
+    check(section, `Agent schema has field: ${fid}`, agentFields.has(fid));
+  }
+  // Agent parentType options must include all 4 PRD-listed kinds
+  const parentTypeOptions = SCHEMAS_BY_ROLE.Agent.fields.find(
+    (f) => f.id === "parentType",
+  )?.options;
+  for (const expected of ["broker", "realtor", "realty", "developer"]) {
+    check(
+      section,
+      `Agent parentType option present: ${expected}`,
+      !!parentTypeOptions?.some((o) => o.value === expected),
+    );
+  }
+
+  // Broker fields (PRD §Registration → Broker)
+  const brokerFields = fieldIds("Broker");
+  for (const fid of [
+    "fullName",
+    "email",
+    "mobile",
+    "password",
+    "confirmPassword",
+    "brokerLicenseNumber",
+    "prcLicenseNumber",
+    "companyName",
+    "businessAddress",
+    "officeLocation",
+    "numAgentsUnderBroker",
+    "consent",
+  ]) {
+    check(section, `Broker schema has field: ${fid}`, brokerFields.has(fid));
+  }
+
+  // Realtor fields (PRD §Registration → Realtor)
+  const realtorFields = fieldIds("Realtor");
+  for (const fid of [
+    "fullName",
+    "email",
+    "mobile",
+    "password",
+    "confirmPassword",
+    "realtorMembershipNumber",
+    "boardOrAssociation",
+    "brokerLicenseNumber",
+    "companyName",
+    "businessAddress",
+    "officeLocation",
+    "consent",
+  ]) {
+    check(section, `Realtor schema has field: ${fid}`, realtorFields.has(fid));
+  }
+
+  // -- Document requirements per role --
+  // Each role has at least one required ID document.
+  for (const role of ["Agent", "Broker", "Realtor"] as const) {
+    const schema = SCHEMAS_BY_ROLE[role];
+    check(
+      section,
+      `${role} schema has ≥1 required document`,
+      requiredDocumentCount(schema) >= 1,
+      `got ${requiredDocumentCount(schema)}`,
+    );
+  }
+
+  // -- Account-status gating --
+  // Verified users route to dashboard; all other states route to /auth/pending.
+  const statusTrials: AccountStatus[] = [
+    "Pending Verification",
+    "Verified",
+    "Rejected",
+    "Needs More Documents",
+  ];
+  for (const s of statusTrials) {
+    const agentDest = landingDestination("Agent", s);
+    const brokerDest = landingDestination("Broker", s);
+    const realtorDest = landingDestination("Realtor", s);
+    if (s === "Verified") {
+      check(
+        section,
+        `Verified Agent routes to /agent`,
+        agentDest.kind === "dashboard" && agentDest.path === "/agent",
+      );
+      check(
+        section,
+        `Verified Broker routes to /broker`,
+        brokerDest.kind === "dashboard" && brokerDest.path === "/broker",
+      );
+      check(
+        section,
+        `Verified Realtor routes to /realtor`,
+        realtorDest.kind === "dashboard" && realtorDest.path === "/realtor",
+      );
+    } else {
+      check(
+        section,
+        `Status "${s}" routes to pending for Agent`,
+        agentDest.kind === "pending",
+      );
+      check(
+        section,
+        `Status "${s}" routes to pending for Broker`,
+        brokerDest.kind === "pending",
+      );
+      check(
+        section,
+        `Status "${s}" routes to pending for Realtor`,
+        realtorDest.kind === "pending",
+      );
+    }
+  }
+
+  // canAccessRoleFeatures returns true ONLY for Verified
+  for (const s of statusTrials) {
+    const expected = s === "Verified";
+    check(
+      section,
+      `canAccessRoleFeatures("${s}") = ${expected}`,
+      canAccessRoleFeatures(s) === expected,
+    );
+  }
+
+  // -- Seed users include at least one Pending user (for the demo shortcut) --
+  const pendingUser = seedUsers.find(
+    (u) => u.status === "Pending Verification",
+  );
+  check(
+    section,
+    "≥1 seed user with Pending Verification status",
+    !!pendingUser,
+    pendingUser ? `e.g. ${pendingUser.email}` : "none found",
+  );
+
+  // -- Role-route mapping for the signup picker --
+  // The signup screen must produce /auth/register/agent | /broker | /realtor.
+  for (const role of ["Agent", "Broker", "Realtor"] as const) {
+    const lower = role.toLowerCase();
+    const route = `/auth/register/${lower}`;
+    check(
+      section,
+      `Registration route exists for ${role}: ${route}`,
+      prdRoutes.some((r) => r.route === route),
+    );
+  }
+
+  // -- Forgot password stub registered --
+  check(
+    section,
+    "Forgot Password route exists in manifest",
+    prdRoutes.some((r) => r.route === "/auth/forgot-password"),
+  );
+}
+
+// ----------------------------------------------------------------------------
+// 7. PRD Coverage
 // ----------------------------------------------------------------------------
 
 function reportPRDCoverage() {
-  const section = "6. PRD Coverage";
+  const section = "7. PRD Coverage";
 
   check(
     section,
@@ -998,6 +1211,49 @@ function reportPRDCoverage() {
     section,
     "Coverage summary",
     `complete=${complete}, scaffolded=${scaffolded}, pending=${pending} (of ${prdRoutes.length})`,
+  );
+
+  // Session 2 stop-signal: 7 routes (the auth flow) marked complete.
+  // We expect exactly the 7 auth routes that Session 2 promoted:
+  // splash, create-account, register-agent, register-broker, register-realtor,
+  // upload-documents, pending-verification, forgot-password = 8 entries total.
+  // (The forgot-password addition pushes the count to 8.)
+  const session2Routes = [
+    "splash",
+    "create-account",
+    "register-agent",
+    "register-broker",
+    "register-realtor",
+    "upload-documents",
+    "pending-verification",
+    "forgot-password",
+  ];
+  for (const id of session2Routes) {
+    const entry = prdRoutes.find((r) => r.id === id);
+    if (!entry) {
+      fail(section, `Session 2 route ${id} present in manifest`, "missing");
+      continue;
+    }
+    check(
+      section,
+      `Session 2 route "${id}" status = complete`,
+      entry.status === "complete",
+      `got ${entry.status}`,
+    );
+    check(
+      section,
+      `Session 2 route "${id}" completedInSession = 2`,
+      entry.completedInSession === 2,
+      `got ${entry.completedInSession}`,
+    );
+  }
+
+  // Coverage cannot regress: complete ≥ 8 by Session 2 close.
+  check(
+    section,
+    "Coverage progress: ≥ 8 routes complete after Session 2",
+    complete >= 8,
+    `complete=${complete}`,
   );
 }
 
@@ -1070,5 +1326,6 @@ checkStructuralInvariants();
 checkDemoBeats();
 checkRoleAwareLock();
 checkCommissionMockup();
+checkAuthAndSchemas();
 reportPRDCoverage();
 report();
