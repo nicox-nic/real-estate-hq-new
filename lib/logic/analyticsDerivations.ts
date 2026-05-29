@@ -104,11 +104,9 @@ export interface ResponseTimeBucket {
 }
 
 /**
- * Buckets leads by the time gap between createdAt and lastMessageAt
- * (the proxy for first response time we have in the seed).
- *
- * Without firstContactedAt on Lead, we use `lastMessageAt` as the
- * post-creation activity signal — engine-honest given the data.
+ * Buckets leads by the time gap between createdAt and firstContactedAt
+ * (the agent's first response). Seeded by Session 9's polish; falls
+ * back to lastMessageAt if firstContactedAt is missing.
  */
 export function computeResponseTimeDistribution(
   manager: User,
@@ -127,8 +125,11 @@ export function computeResponseTimeDistribution(
 
   for (const lead of teamLeads) {
     const createdMs = new Date(lead.createdAt).getTime();
-    const messageMs = new Date(lead.lastMessageAt).getTime();
-    const gapHours = (messageMs - createdMs) / 3_600_000;
+    // Prefer firstContactedAt (Session 9 seed); fall back to lastMessageAt
+    // for legacy or unseeded leads.
+    const responseIso = lead.firstContactedAt ?? lead.lastMessageAt;
+    const responseMs = new Date(responseIso).getTime();
+    const gapHours = (responseMs - createdMs) / 3_600_000;
     const bucket = buckets.find(
       (b) => gapHours >= b.lowerHours && gapHours < b.upperHours,
     );

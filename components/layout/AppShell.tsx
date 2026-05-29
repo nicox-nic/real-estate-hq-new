@@ -171,6 +171,35 @@ export function AppShell({ role, userName, userSubtitle, children }: AppShellPro
         </div>
       </aside>
 
+      {/* Mobile top header — visible on small screens only.
+       *  Shows the role + a tappable bell with unread badge so mobile
+       *  users have a notification entry point without crowding the
+       *  5-icon bottom nav. */}
+      <header className="lg:hidden sticky top-0 z-40 bg-canvas-raised/95 backdrop-blur-sm border-b border-line">
+        <div className="flex items-center justify-between gap-2 px-4 h-12">
+          <span className="text-sm font-medium text-ink truncate">
+            {userName.split(/\s+/)[0]}
+          </span>
+          <Link
+            href="/notifications"
+            data-testid="mobile-bell"
+            data-unread-count={unreadCount}
+            aria-label={`Notifications${unreadCount > 0 ? ` (${unreadCount} unread)` : ""}`}
+            className="relative inline-flex items-center justify-center h-9 w-9 rounded-xl text-ink-muted hover:text-ink"
+          >
+            <Bell className="h-5 w-5" />
+            {unreadCount > 0 ? (
+              <span
+                data-testid="mobile-bell-badge"
+                className="absolute top-1 right-1 min-w-[16px] h-[16px] px-1 rounded-full bg-terracotta-deep text-canvas-raised text-[9px] font-semibold flex items-center justify-center tabular-nums"
+              >
+                {unreadCount > 9 ? "9+" : unreadCount}
+              </span>
+            ) : null}
+          </Link>
+        </div>
+      </header>
+
       {/* Main */}
       <main className="lg:pl-64 pb-20 lg:pb-0">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-6">{children}</div>

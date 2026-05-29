@@ -176,6 +176,11 @@ export interface Lead {
   seedScore: number;
   seedScoreCategory: LeadScoreCategory;
   createdAt: string;
+  /** ISO timestamp when the agent first responded to the lead.
+   *  Optional — may be unset for very new leads that haven't been
+   *  contacted yet. Used by Manager Analytics' Response Time
+   *  Distribution chart (Session 8A + 9 polish). */
+  firstContactedAt?: string;
   lastMessageAt: string;
   lastMessagePreview: string;
   needsReply: boolean;

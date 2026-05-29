@@ -807,3 +807,58 @@ if (_missing.length > 0) {
   // This catches it at boot if seeds drift; verify catches it formally.
   console.warn("Seed leads missing sources:", _missing);
 }
+
+// ---------------------------------------------------------------------------
+// firstContactedAt distribution (Session 9 polish — per 8A reviewer ratification)
+//
+// Adds realistic first-response time distribution that the Manager Analytics
+// Response Time chart reads. Distribution buckets (per framing):
+//   ~20% within 15 minutes (rapid first response)
+//   ~25% within 1 hour
+//   ~25% within 4 hours
+//   ~20% within 24 hours
+//   ~10% at 24h+ (slower, but still contacted)
+//
+// Deterministic: derived from lead id hash so the distribution is stable
+// across reloads (no Math.random). Engine math stays honest against the
+// richer seed.
+// ---------------------------------------------------------------------------
+
+function deterministicHash(s: string): number {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) {
+    h = ((h << 5) - h + s.charCodeAt(i)) | 0;
+  }
+  return Math.abs(h);
+}
+
+/** Maps a lead id to a first-response delay in hours, producing the target
+ *  distribution roughly 20/25/25/20/10 across the 5 buckets. */
+function firstContactedDelayHours(leadId: string): number {
+  const bucket = deterministicHash(leadId) % 100; // 0..99
+  // 0..19  → < 15 min (bucket: 0.0 - 0.25h)
+  // 20..44 → 15min - 1h
+  // 45..69 → 1h - 4h
+  // 70..89 → 4h - 24h
+  // 90..99 → 24h+
+  const sub = deterministicHash(leadId + "sub") % 1000; // 0..999 for sub-jitter
+  if (bucket < 20) return 0.05 + (sub / 1000) * 0.2; // 3min-15min
+  if (bucket < 45) return 0.3 + (sub / 1000) * 0.7; // 18min-1h
+  if (bucket < 70) return 1.1 + (sub / 1000) * 2.9; // 1.1h-4h
+  if (bucket < 90) return 4.5 + (sub / 1000) * 19.5; // 4.5h-24h
+  return 26 + (sub / 1000) * 48; // 26h-74h
+}
+
+// Mutate the seedLeads to add firstContactedAt. Done in-place so all
+// existing references remain valid; the field is optional on the type.
+for (const lead of seedLeads) {
+  const createdMs = new Date(lead.createdAt).getTime();
+  const delayHours = firstContactedDelayHours(lead.id);
+  // Cap firstContactedAt at lastMessageAt — a lead can't be first-contacted
+  // AFTER the last message in the conversation.
+  const lastMessageMs = new Date(lead.lastMessageAt).getTime();
+  const computedMs = createdMs + delayHours * 3_600_000;
+  const finalMs = Math.min(computedMs, lastMessageMs);
+  lead.firstContactedAt = new Date(finalMs).toISOString();
+}
+
