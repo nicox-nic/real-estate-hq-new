@@ -167,7 +167,23 @@ import {
   smartLinkFor,
   getClientShareCount,
   _resetShareStoreForTests,
+  appendEngagementEvent,
+  getEngagementEvents,
 } from "@/lib/shareStore";
+import {
+  recommendFilesFor,
+  FILE_RECOMMENDATION_RULES,
+  allRecommendableCategories,
+  type FileRecommendationRule,
+} from "@/lib/logic/aiFileRecommendation";
+import {
+  buildEngagementSchedule,
+  SIMULATOR_TIMINGS,
+} from "@/lib/logic/engagementSimulator";
+import {
+  labelFor as engagementLabelFor,
+  categoryShortLabel,
+} from "@/components/share/FileEngagementStrip";
 
 // ----------------------------------------------------------------------------
 // Mini assertion framework
@@ -3481,6 +3497,617 @@ function checkShareListing() {
 }
 
 // ----------------------------------------------------------------------------
+// 16. Attach Files + AI Recommendation + Engagement Simulation + share-006 anchor (Session 5B)
+// ----------------------------------------------------------------------------
+
+function checkAttachFilesAndEngagement() {
+  const section = "16. Attach Files + Engagement";
+
+  _resetShareStoreForTests();
+
+  // -- FILE_RECOMMENDATION_RULES table totality --
+  const ruleKeys = Object.keys(FILE_RECOMMENDATION_RULES);
+  check(
+    section,
+    "FILE_RECOMMENDATION_RULES has all 7 rules",
+    ruleKeys.length === 7,
+    `got ${ruleKeys.length}`,
+  );
+  for (const k of [
+    "investor",
+    "ofw",
+    "familyEndUser",
+    "luxury",
+    "firstTimeBuyer",
+    "rental",
+    "default",
+  ] as FileRecommendationRule[]) {
+    check(
+      section,
+      `FILE_RECOMMENDATION_RULES.${k} declared`,
+      Object.prototype.hasOwnProperty.call(FILE_RECOMMENDATION_RULES, k),
+    );
+    check(
+      section,
+      `FILE_RECOMMENDATION_RULES.${k} has non-empty categories list`,
+      FILE_RECOMMENDATION_RULES[k].categories.length > 0,
+    );
+  }
+
+  // Every rule recommends Brochures (the universal file)
+  for (const k of ruleKeys as FileRecommendationRule[]) {
+    check(
+      section,
+      `Rule ${k} recommends Brochures (universal)`,
+      FILE_RECOMMENDATION_RULES[k].categories.includes("Brochures"),
+    );
+  }
+
+  // -- 8 PRD categories all reachable via recommendation rules --
+  const recommendable = allRecommendableCategories();
+  for (const cat of [
+    "Brochures",
+    "Computations",
+    "Floor Plans",
+    "Location Map",
+    "Photos",
+    "Price List",
+    "Payment Terms",
+  ] as const) {
+    check(
+      section,
+      `Category "${cat}" appears in at least one recommendation rule`,
+      recommendable.has(cat),
+    );
+  }
+
+  // -- Anchor: family-end-user (Maria) + Laurel 12A → familyEndUser rule
+  //    with 4 recommended categories matching mockup --
+  const listing = seedListings.find((l) => l.id === "listing-laurel-12a");
+  const familyLead = seedLeads.find((l) => l.id === "lead-instagram-01");
+  const investorLead = seedLeads.find((l) => l.id === "lead-portal-01");
+  check(section, "Anchor listing-laurel-12a exists", !!listing);
+  check(section, "Anchor lead-instagram-01 exists (family)", !!familyLead);
+  check(section, "Anchor lead-portal-01 exists (investor)", !!investorLead);
+  if (!listing || !familyLead || !investorLead) return;
+
+  const laurelFiles = seedPropertyFiles.filter(
+    (f) => f.listingId === "listing-laurel-12a",
+  );
+  check(
+    section,
+    "Laurel 12A has ≥ 4 files (mockup needs Brochure + Computation + Floor Plan + Location Map)",
+    laurelFiles.length >= 4,
+  );
+
+  const familyRec = recommendFilesFor({
+    lead: familyLead,
+    listing,
+    availableFiles: laurelFiles,
+  });
+  check(
+    section,
+    "Family lead + Laurel 12A → familyEndUser rule",
+    familyRec.rule === "familyEndUser",
+    `got ${familyRec.rule}`,
+  );
+  check(
+    section,
+    "Family recommendation includes Brochures category",
+    familyRec.recommendedCategories.includes("Brochures"),
+  );
+  check(
+    section,
+    "Family recommendation includes Computations category",
+    familyRec.recommendedCategories.includes("Computations"),
+  );
+  check(
+    section,
+    "Family recommendation includes Floor Plans category",
+    familyRec.recommendedCategories.includes("Floor Plans"),
+  );
+  check(
+    section,
+    "Family recommendation includes Location Map category",
+    familyRec.recommendedCategories.includes("Location Map"),
+  );
+  check(
+    section,
+    "Family recommendation resolves to 4 actual file IDs (all categories present in Laurel seed)",
+    familyRec.recommendedFileIds.length === 4,
+    `got ${familyRec.recommendedFileIds.length}`,
+  );
+  // The 4 file IDs are the 4 expected mockup files
+  for (const expectedId of [
+    "file-001", // Brochure
+    "file-002", // Sample Computation
+    "file-laurel-12a-floorplan",
+    "file-laurel-12a-locationmap",
+  ]) {
+    check(
+      section,
+      `Family recommendation includes file ${expectedId}`,
+      familyRec.recommendedFileIds.includes(expectedId),
+    );
+  }
+
+  // -- Investor recommendation differs structurally from family --
+  const investorRec = recommendFilesFor({
+    lead: investorLead,
+    listing,
+    availableFiles: laurelFiles,
+  });
+  check(
+    section,
+    "Investor lead + Laurel 12A → investor rule (different from family)",
+    investorRec.rule === "investor" && investorRec.rule !== familyRec.rule,
+  );
+  // Investor does NOT include Floor Plans or Location Map (the family-specific picks)
+  check(
+    section,
+    "Investor recommendation excludes Floor Plans (family-specific)",
+    !investorRec.recommendedCategories.includes("Floor Plans"),
+  );
+  check(
+    section,
+    "Investor recommendation excludes Location Map (family-specific)",
+    !investorRec.recommendedCategories.includes("Location Map"),
+  );
+  check(
+    section,
+    "Investor recommendation includes Price List (investor-specific)",
+    investorRec.recommendedCategories.includes("Price List"),
+  );
+
+  // 4-pronged structural proof on file recommendation differentiation
+  check(
+    section,
+    "Profile prong 1: rule routing differs (familyEndUser vs investor)",
+    familyRec.rule !== investorRec.rule,
+  );
+  check(
+    section,
+    "Profile prong 2: family categories include Floor Plans; investor's don't",
+    familyRec.recommendedCategories.includes("Floor Plans") &&
+      !investorRec.recommendedCategories.includes("Floor Plans"),
+  );
+  check(
+    section,
+    "Profile prong 3: investor categories include Price List; family's don't",
+    investorRec.recommendedCategories.includes("Price List") &&
+      !familyRec.recommendedCategories.includes("Price List"),
+  );
+  check(
+    section,
+    "Profile prong 4: family resolves to more files (4) than investor (2 — no Price List file in Laurel seed)",
+    familyRec.recommendedFileIds.length > investorRec.recommendedFileIds.length,
+  );
+
+  // -- Determinism --
+  const a = recommendFilesFor({
+    lead: familyLead,
+    listing,
+    availableFiles: laurelFiles,
+  });
+  const b = recommendFilesFor({
+    lead: familyLead,
+    listing,
+    availableFiles: laurelFiles,
+  });
+  check(
+    section,
+    "recommendFilesFor is deterministic: same rule",
+    a.rule === b.rule,
+  );
+  check(
+    section,
+    "recommendFilesFor is deterministic: same file IDs in same order",
+    a.recommendedFileIds.join(",") === b.recommendedFileIds.join(","),
+  );
+
+  // -- ENGAGEMENT SIMULATOR --
+  const filesById = new Map(seedPropertyFiles.map((f) => [f.id, f]));
+
+  // Default timings present + monotonic (open before download/view/etc.)
+  check(
+    section,
+    "SIMULATOR_TIMINGS.linkOpenedMs is the earliest event",
+    SIMULATOR_TIMINGS.linkOpenedMs < SIMULATOR_TIMINGS.brochureMs,
+  );
+  check(
+    section,
+    "Brochure event fires before Computation event",
+    SIMULATOR_TIMINGS.brochureMs < SIMULATOR_TIMINGS.computationMs,
+  );
+  check(
+    section,
+    "Computation event fires before Floor Plan event",
+    SIMULATOR_TIMINGS.computationMs < SIMULATOR_TIMINGS.floorPlanMs,
+  );
+  check(
+    section,
+    "Floor Plan event fires before Location Map event",
+    SIMULATOR_TIMINGS.floorPlanMs < SIMULATOR_TIMINGS.locationMapMs,
+  );
+  check(
+    section,
+    "Location Map event fires before Site Visit request",
+    SIMULATOR_TIMINGS.locationMapMs < SIMULATOR_TIMINGS.siteVisitRequestMs,
+  );
+  check(
+    section,
+    "siteVisitRequestProbability is between 0.3 and 0.5 (framing says ~40%)",
+    SIMULATOR_TIMINGS.siteVisitRequestProbability >= 0.3 &&
+      SIMULATOR_TIMINGS.siteVisitRequestProbability <= 0.5,
+  );
+
+  // Full-attachment schedule
+  const fullSchedule = buildEngagementSchedule({
+    campaignId: "test-full",
+    attachedFileIds: [
+      "file-001",
+      "file-002",
+      "file-laurel-12a-floorplan",
+      "file-laurel-12a-locationmap",
+    ],
+    filesById,
+    rngSeed: 1, // seed=1 → LCG draw ≈ 0.236 < 0.4 → site visit fires
+  });
+  check(
+    section,
+    "Full schedule has link_opened first",
+    fullSchedule[0]?.kind === "link_opened",
+  );
+  check(
+    section,
+    "Full schedule contains brochure_opened (file-001)",
+    fullSchedule.some(
+      (e) => e.kind === "brochure_opened" && e.fileId === "file-001",
+    ),
+  );
+  check(
+    section,
+    "Full schedule contains computation_downloaded (file-002)",
+    fullSchedule.some(
+      (e) => e.kind === "computation_downloaded" && e.fileId === "file-002",
+    ),
+  );
+  check(
+    section,
+    "Full schedule contains floor_plan_viewed",
+    fullSchedule.some((e) => e.kind === "floor_plan_viewed"),
+  );
+  check(
+    section,
+    "Full schedule contains location_map_opened",
+    fullSchedule.some((e) => e.kind === "location_map_opened"),
+  );
+  check(
+    section,
+    "Full schedule (seed=1) contains site_visit_requested",
+    fullSchedule.some((e) => e.kind === "site_visit_requested"),
+  );
+  check(
+    section,
+    "Schedule sorted by delayMs ascending",
+    fullSchedule.every(
+      (e, i) => i === 0 || e.delayMs >= (fullSchedule[i - 1]?.delayMs ?? 0),
+    ),
+  );
+
+  // Brochure-only schedule should NOT contain floor_plan_viewed or location_map_opened
+  const brochureOnlySchedule = buildEngagementSchedule({
+    campaignId: "test-bro",
+    attachedFileIds: ["file-001"],
+    filesById,
+    rngSeed: 1,
+  });
+  check(
+    section,
+    "Brochure-only schedule has link_opened + brochure_opened (no floor/map/comp)",
+    brochureOnlySchedule.some((e) => e.kind === "brochure_opened") &&
+      !brochureOnlySchedule.some((e) => e.kind === "computation_downloaded") &&
+      !brochureOnlySchedule.some((e) => e.kind === "floor_plan_viewed") &&
+      !brochureOnlySchedule.some((e) => e.kind === "location_map_opened"),
+  );
+
+  // No-attachments schedule still fires link_opened but skips file events + site visit
+  const emptySchedule = buildEngagementSchedule({
+    campaignId: "test-empty",
+    attachedFileIds: [],
+    filesById,
+    rngSeed: 1,
+  });
+  check(
+    section,
+    "Empty-attachments schedule contains link_opened",
+    emptySchedule.some((e) => e.kind === "link_opened"),
+  );
+  check(
+    section,
+    "Empty-attachments schedule does NOT contain any file-specific events",
+    !emptySchedule.some((e) => e.fileId !== undefined),
+  );
+  check(
+    section,
+    "Empty-attachments schedule does NOT contain site_visit_requested (no info file)",
+    !emptySchedule.some((e) => e.kind === "site_visit_requested"),
+  );
+
+  // Determinism — same seed → same schedule
+  const schedA = buildEngagementSchedule({
+    campaignId: "det-a",
+    attachedFileIds: ["file-001", "file-002"],
+    filesById,
+    rngSeed: 42,
+  });
+  const schedB = buildEngagementSchedule({
+    campaignId: "det-b",
+    attachedFileIds: ["file-001", "file-002"],
+    filesById,
+    rngSeed: 42,
+  });
+  check(
+    section,
+    "Schedule is deterministic given same seed: same length",
+    schedA.length === schedB.length,
+  );
+  check(
+    section,
+    "Schedule is deterministic: same event kinds in same order",
+    schedA.map((e) => e.kind).join(",") === schedB.map((e) => e.kind).join(","),
+  );
+
+  // -- SHARE-006 MARQUEE ANCHOR --
+  const anchor = seedShareCampaigns.find((c) => c.id === "share-006");
+  check(section, "share-006 marquee anchor exists in seed", !!anchor);
+  if (!anchor) return;
+  check(
+    section,
+    "share-006 is by agent-001 (Alyssa)",
+    anchor.agentId === "agent-001",
+  );
+  check(
+    section,
+    "share-006 is to buyer-005 (Maria Santos)",
+    anchor.buyerProfileId === "buyer-005",
+  );
+  check(
+    section,
+    "share-006 is on listing-laurel-12a",
+    anchor.listingId === "listing-laurel-12a",
+  );
+  check(
+    section,
+    "share-006 channel is Messenger (matches mockup)",
+    anchor.channel === "Messenger",
+  );
+  check(
+    section,
+    "share-006 has exactly 4 attached files (mockup file count)",
+    anchor.attachedFileIds.length === 4,
+    `got ${anchor.attachedFileIds.length}`,
+  );
+  for (const expectedId of [
+    "file-001",
+    "file-002",
+    "file-laurel-12a-floorplan",
+    "file-laurel-12a-locationmap",
+  ]) {
+    check(
+      section,
+      `share-006 attached file: ${expectedId}`,
+      anchor.attachedFileIds.includes(expectedId),
+    );
+  }
+  check(
+    section,
+    "share-006 has smartLinkToken set",
+    anchor.smartLinkToken.length > 0,
+  );
+  check(
+    section,
+    "share-006 smartLinkUrl ends with token",
+    anchor.smartLinkUrl.endsWith(anchor.smartLinkToken),
+  );
+
+  // share-006 engagement events match the mockup's strip exactly
+  check(
+    section,
+    "share-006 has ≥ 5 engagement events",
+    anchor.engagementEvents.length >= 5,
+    `got ${anchor.engagementEvents.length}`,
+  );
+  const evKinds = new Set(anchor.engagementEvents.map((e) => e.kind));
+  check(
+    section,
+    "share-006 events include link_opened",
+    evKinds.has("link_opened"),
+  );
+  check(
+    section,
+    "share-006 events include brochure_opened",
+    evKinds.has("brochure_opened"),
+  );
+  check(
+    section,
+    "share-006 events include computation_downloaded",
+    evKinds.has("computation_downloaded"),
+  );
+  check(
+    section,
+    "share-006 events include floor_plan_viewed",
+    evKinds.has("floor_plan_viewed"),
+  );
+  check(
+    section,
+    "share-006 events include location_map_opened",
+    evKinds.has("location_map_opened"),
+  );
+
+  // Mockup-anchor timestamps: events at 02:24, 02:26, 02:27, 02:28 UTC
+  // (which is 10:24-10:28 PHT). Each event references the correct file.
+  const findEv = (kind: string, fileId?: string) =>
+    anchor.engagementEvents.find(
+      (e) => e.kind === kind && (fileId === undefined || e.fileId === fileId),
+    );
+  const broEv = findEv("brochure_opened", "file-001");
+  check(
+    section,
+    "share-006 brochure_opened references file-001 at 02:24 UTC",
+    !!broEv && broEv.at === "2025-05-29T02:24:00.000Z",
+    `at=${broEv?.at}`,
+  );
+  const compEv = findEv("computation_downloaded", "file-002");
+  check(
+    section,
+    "share-006 computation_downloaded references file-002 at 02:26 UTC",
+    !!compEv && compEv.at === "2025-05-29T02:26:00.000Z",
+  );
+  const fpEv = findEv("floor_plan_viewed", "file-laurel-12a-floorplan");
+  check(
+    section,
+    "share-006 floor_plan_viewed references file-laurel-12a-floorplan at 02:27 UTC",
+    !!fpEv && fpEv.at === "2025-05-29T02:27:00.000Z",
+  );
+  const mapEv = findEv("location_map_opened", "file-laurel-12a-locationmap");
+  check(
+    section,
+    "share-006 location_map_opened references file-laurel-12a-locationmap at 02:28 UTC",
+    !!mapEv && mapEv.at === "2025-05-29T02:28:00.000Z",
+  );
+
+  // -- appendEngagementEvent: appends to seed campaign via shadow buffer --
+  const beforeEvents = getEngagementEvents("share-006");
+  const beforeCount = beforeEvents.length;
+  appendEngagementEvent("share-006", {
+    kind: "reply_received",
+  });
+  const afterEvents = getEngagementEvents("share-006");
+  check(
+    section,
+    "appendEngagementEvent: seed campaign event count grows via shadow buffer",
+    afterEvents.length === beforeCount + 1,
+  );
+  check(
+    section,
+    "appendEngagementEvent: appended event is sorted last",
+    afterEvents[afterEvents.length - 1]?.kind === "reply_received",
+  );
+
+  // -- engagementLabelFor + categoryShortLabel — strip render helpers --
+  check(
+    section,
+    "labelFor(brochure_opened) returns 'Opened'",
+    engagementLabelFor("brochure_opened") === "Opened",
+  );
+  check(
+    section,
+    "labelFor(computation_downloaded) returns 'Downloaded'",
+    engagementLabelFor("computation_downloaded") === "Downloaded",
+  );
+  check(
+    section,
+    "labelFor(floor_plan_viewed) returns 'Viewed'",
+    engagementLabelFor("floor_plan_viewed") === "Viewed",
+  );
+  check(
+    section,
+    "labelFor(location_map_opened) returns 'Opened'",
+    engagementLabelFor("location_map_opened") === "Opened",
+  );
+  check(
+    section,
+    "categoryShortLabel('Brochures') returns 'Brochure' (strip-friendly singular)",
+    categoryShortLabel("Brochures") === "Brochure",
+  );
+  check(
+    section,
+    "categoryShortLabel('Computations') returns 'Computation' (strip-friendly singular)",
+    categoryShortLabel("Computations") === "Computation",
+  );
+  check(
+    section,
+    "categoryShortLabel('Floor Plans') returns 'Floor Plan'",
+    categoryShortLabel("Floor Plans") === "Floor Plan",
+  );
+  check(
+    section,
+    "categoryShortLabel('Location Map') returns 'Location Map' (already singular)",
+    categoryShortLabel("Location Map") === "Location Map",
+  );
+
+  // -- All campaigns in seed have engagementEvents field populated and
+  //    smartLinkToken set --
+  for (const c of seedShareCampaigns) {
+    check(
+      section,
+      `Seed campaign ${c.id}: smartLinkToken set`,
+      typeof c.smartLinkToken === "string" && c.smartLinkToken.length > 0,
+    );
+    check(
+      section,
+      `Seed campaign ${c.id}: engagementEvents is an array (may be empty)`,
+      Array.isArray(c.engagementEvents),
+    );
+    // Every engagement event references the campaign correctly
+    for (const e of c.engagementEvents) {
+      check(
+        section,
+        `Seed campaign ${c.id} event ${e.id}: shareCampaignId matches`,
+        e.shareCampaignId === c.id,
+      );
+    }
+  }
+
+  // -- shareListing() creates campaign with engagementEvents: [] + smartLinkToken --
+  _resetShareStoreForTests();
+  const sendResult = shareListing({
+    listingId: "listing-laurel-12a",
+    agentId: "agent-001",
+    buyerLeadId: "lead-instagram-01",
+    buyerProfileId: "buyer-005",
+    channel: "Messenger",
+    message: "Test send for verify",
+    attachedFileIds: ["file-001"],
+  });
+  check(
+    section,
+    "Fresh shareListing campaign has empty engagementEvents",
+    sendResult.campaign.engagementEvents.length === 0,
+  );
+  check(
+    section,
+    "Fresh shareListing campaign has non-empty smartLinkToken",
+    sendResult.campaign.smartLinkToken.length > 0,
+  );
+  check(
+    section,
+    "Fresh shareListing token matches trailing segment of smartLinkUrl",
+    sendResult.campaign.smartLinkUrl.endsWith(sendResult.campaign.smartLinkToken),
+  );
+
+  // After appendEngagementEvent to a sent campaign, events count grows
+  appendEngagementEvent(sendResult.campaign.id, {
+    kind: "link_opened",
+  });
+  const sentEvents = getEngagementEvents(sendResult.campaign.id);
+  check(
+    section,
+    "Sent campaign engagementEvents grows after appendEngagementEvent",
+    sentEvents.length === 1 && sentEvents[0]?.kind === "link_opened",
+  );
+
+  // Cleanup
+  _resetForTests();
+  _resetShareStoreForTests();
+
+  // Mention `_unused`-style imports so TS doesn't strip
+  void getClientShareCount;
+  void smartLinkFor;
+}
+
+// ----------------------------------------------------------------------------
 // 15. PRD Coverage
 // ----------------------------------------------------------------------------
 
@@ -3721,6 +4348,40 @@ function reportPRDCoverage() {
     complete >= 27,
     `complete=${complete}`,
   );
+
+  // Session 5B stop-signal: attach-files (#22) promoted.
+  // Smart Link tracking, engagement simulation, and File Engagement
+  // Tracking strip are surfaces-within-existing-routes (Share Listing,
+  // Conversation thread) and do not add to the route count — their
+  // behaviors are locked by Section 16.
+  const session5bRoutes = ["attach-files"];
+  for (const id of session5bRoutes) {
+    const entry = prdRoutes.find((r) => r.id === id);
+    if (!entry) {
+      fail(section, `Session 5B route ${id} present in manifest`, "missing");
+      continue;
+    }
+    check(
+      section,
+      `Session 5B route "${id}" status = complete`,
+      entry.status === "complete",
+      `got ${entry.status}`,
+    );
+    check(
+      section,
+      `Session 5B route "${id}" completedInSession = 5`,
+      entry.completedInSession === 5,
+      `got ${entry.completedInSession}`,
+    );
+  }
+
+  // Coverage cannot regress: 27 (Session 5A) + 1 (Session 5B attach-files) = 28.
+  check(
+    section,
+    "Coverage progress: ≥ 28 routes complete after Session 5B",
+    complete >= 28,
+    `complete=${complete}`,
+  );
 }
 
 // ----------------------------------------------------------------------------
@@ -3799,5 +4460,6 @@ checkAIReply();
 checkListingsSpine();
 checkListings4B();
 checkShareListing();
+checkAttachFilesAndEngagement();
 reportPRDCoverage();
 report();

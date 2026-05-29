@@ -2,7 +2,12 @@
 
 import * as React from "react";
 import { useSyncExternalStore } from "react";
-import type { ShareCampaign, ShareChannel, MessageTone } from "@/lib/types";
+import type {
+  ShareCampaign,
+  ShareChannel,
+  MessageTone,
+  EngagementEvent,
+} from "@/lib/types";
 import { seedShareCampaigns } from "@/data/shareCampaigns";
 import { sendMessage } from "@/lib/conversationStore";
 
@@ -128,6 +133,11 @@ export function shareListing(input: ShareListingInput): ShareListingResult {
     input.agentId,
     input.buyerLeadId,
   );
+  // The token is the trailing slug-hash segment of the smart link, e.g.
+  // "https://estatehq.ph/l/laurel-12a-XXXX" → "XXXX". The redirect
+  // resolver looks up by this token; the QR encoder encodes the full URL.
+  const tokenMatch = /-([a-z0-9]+)$/i.exec(smartLinkUrl);
+  const smartLinkToken = tokenMatch?.[1] ?? campaignId.slice(-4);
 
   const campaign: ShareCampaign = {
     id: campaignId,
@@ -136,6 +146,7 @@ export function shareListing(input: ShareListingInput): ShareListingResult {
     buyerProfileId: input.buyerProfileId,
     channel: input.channel,
     smartLinkUrl,
+    smartLinkToken,
     message: input.message,
     attachedFileIds: input.attachedFileIds,
     sharedAt: new Date().toISOString(),
@@ -145,6 +156,7 @@ export function shareListing(input: ShareListingInput): ShareListingResult {
     siteVisitBookings: 0,
     replies: 0,
     reshares: 0,
+    engagementEvents: [],
   };
 
   sentCampaigns.push(campaign);
@@ -189,6 +201,97 @@ export function findCampaign(campaignId: string): ShareCampaign | undefined {
 }
 
 /**
+ * Append an engagement event to a campaign. Used by the simulator to deliver
+ * the timed events. Also bumps the appropriate scalar counter so dashboards
+ * stay in sync without recomputing from events on every read.
+ *
+ * For SEED campaigns (immutable), the event is appended to a shadow buffer
+ * keyed by campaign ID — see seedShadow below.
+ */
+const sentEvents = new Map<string, EngagementEvent[]>();
+const seedShadowEvents = new Map<string, EngagementEvent[]>();
+let nextEventCounter = 0;
+
+export function appendEngagementEvent(
+  campaignId: string,
+  ev: { kind: EngagementEvent["kind"]; fileId?: string },
+): EngagementEvent | undefined {
+  const event: EngagementEvent = {
+    id: `evt-${campaignId}-${++nextEventCounter}-${Date.now()}`,
+    shareCampaignId: campaignId,
+    kind: ev.kind,
+    at: new Date().toISOString(),
+    ...(ev.fileId ? { fileId: ev.fileId } : {}),
+  };
+
+  // Find the campaign (seed or sent). For sent campaigns we mutate the
+  // engagementEvents array in place + bump counters. For seed campaigns,
+  // we store the new event in a shadow buffer and merge on read.
+  const sentCampaign = sentCampaigns.find((c) => c.id === campaignId);
+  if (sentCampaign) {
+    sentCampaign.engagementEvents = [...sentCampaign.engagementEvents, event];
+    bumpCounters(sentCampaign, ev.kind);
+    emit();
+    return event;
+  }
+  const seedCampaign = seedShareCampaigns.find((c) => c.id === campaignId);
+  if (seedCampaign) {
+    const shadow = seedShadowEvents.get(campaignId) ?? [];
+    seedShadowEvents.set(campaignId, [...shadow, event]);
+    emit();
+    return event;
+  }
+  return undefined;
+}
+
+function bumpCounters(c: ShareCampaign, kind: EngagementEvent["kind"]) {
+  switch (kind) {
+    case "link_opened":
+      c.opens++;
+      break;
+    case "brochure_opened":
+    case "brochure_downloaded":
+      c.brochureClicks++;
+      break;
+    case "computation_requested":
+    case "computation_opened":
+    case "computation_downloaded":
+      c.computationRequests++;
+      break;
+    case "site_visit_requested":
+      c.siteVisitBookings++;
+      break;
+    case "reply_received":
+      c.replies++;
+      break;
+    case "reshared":
+      c.reshares++;
+      break;
+    default:
+      // Other file-specific events don't bump scalar counters
+      break;
+  }
+}
+
+/**
+ * Returns engagement events for a campaign — merges seed events + shadow
+ * client-side events for seed campaigns; returns the campaign's own events
+ * for sent campaigns. Sorted by `at` ascending (oldest first).
+ */
+export function getEngagementEvents(
+  campaignId: string,
+): EngagementEvent[] {
+  const sentCampaign = sentCampaigns.find((c) => c.id === campaignId);
+  if (sentCampaign) return [...sentCampaign.engagementEvents];
+  const seedCampaign = seedShareCampaigns.find((c) => c.id === campaignId);
+  if (!seedCampaign) return [];
+  const shadow = seedShadowEvents.get(campaignId) ?? [];
+  return [...seedCampaign.engagementEvents, ...shadow].sort((a, b) =>
+    a.at.localeCompare(b.at),
+  );
+}
+
+/**
  * Test/verify hook — count of client-side campaigns sent during the session.
  */
 export function getClientShareCount(): number {
@@ -200,6 +303,9 @@ export function getClientShareCount(): number {
  */
 export function _resetShareStoreForTests() {
   sentCampaigns.length = 0;
+  sentEvents.clear();
+  seedShadowEvents.clear();
+  nextEventCounter = 0;
   cachedLength = -1;
   cachedSnapshot = [...seedShareCampaigns];
   emit();

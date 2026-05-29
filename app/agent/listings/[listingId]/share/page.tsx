@@ -38,11 +38,14 @@ import { applyShareTone } from "@/lib/logic/aiShareTone";
 import { applyLanguage } from "@/lib/logic/aiReply";
 import type { Tone } from "@/lib/logic/aiReply/tones";
 import type { Language } from "@/lib/logic/aiReply/languages";
-import { smartLinkFor, shareListing } from "@/lib/shareStore";
+import { smartLinkFor, shareListing, useShareCampaignsForListing } from "@/lib/shareStore";
 import { formatPHPCompact, formatPHPWhole } from "@/lib/format";
 import type { ShareChannel } from "@/lib/types";
 import { ChannelChips } from "@/components/share/ChannelChips";
 import { ShareRefineSheet } from "@/components/share/ShareRefineSheet";
+import { AttachFilesSheet } from "@/components/share/AttachFilesSheet";
+import { FileEngagementStrip } from "@/components/share/FileEngagementStrip";
+import { QRCodeSVG } from "qrcode.react";
 
 /**
  * Share Listing main page (#21).
@@ -134,9 +137,30 @@ export default function ShareListingPage() {
 
   // Refine sheet
   const [refineOpen, setRefineOpen] = React.useState(false);
+  // Attach Files sheet (Session 5B)
+  const [attachOpen, setAttachOpen] = React.useState(false);
 
   // Copy link feedback
   const [linkCopied, setLinkCopied] = React.useState(false);
+  const [showQR, setShowQR] = React.useState(false);
+
+  // Existing campaign for this listing + selected buyer — used to surface
+  // the FileEngagementStrip on first paint so the seeded share-006 (Maria +
+  // Laurel 12A) shows live engagement immediately, before any Send action.
+  const campaignsForListing = useShareCampaignsForListing(listing.id);
+  const existingCampaign = React.useMemo(() => {
+    if (!selectedLead) return undefined;
+    const matching = campaignsForListing
+      .filter((c) => c.buyerProfileId === selectedLead.buyer.id)
+      .sort((a, b) => b.sharedAt.localeCompare(a.sharedAt));
+    return matching[0];
+  }, [campaignsForListing, selectedLead]);
+  const existingCampaignFiles = React.useMemo(() => {
+    if (!existingCampaign) return [];
+    return existingCampaign.attachedFileIds
+      .map((id) => availableFiles.find((f) => f.id === id))
+      .filter((f): f is NonNullable<typeof f> => !!f);
+  }, [existingCampaign, availableFiles]);
   const smartLink = smartLinkFor(
     listing.id,
     DEMO_AGENT_ID,
@@ -370,7 +394,7 @@ export default function ShareListingPage() {
             <button
               className="text-xs font-medium text-ink-muted hover:text-ink"
               data-testid="attach-files-view-all"
-              onClick={() => alert("Attach Files sheet — Session 5B")}
+              onClick={() => setAttachOpen(true)}
             >
               View All
             </button>
@@ -407,7 +431,7 @@ export default function ShareListingPage() {
             ))}
             <li
               className="rounded-xl border border-line border-dashed p-2.5 bg-canvas-sunken/50 text-ink-muted flex flex-col items-center justify-center gap-1 cursor-pointer hover:border-gold/40"
-              onClick={() => alert("Attach Files sheet — Session 5B")}
+              onClick={() => setAttachOpen(true)}
               data-testid="attach-files-add-more"
             >
               <Plus className="h-4 w-4" />
@@ -463,21 +487,50 @@ export default function ShareListingPage() {
               )}
             </button>
           </div>
-          <div
-            data-testid="smart-link-qr"
-            className="mt-2.5 flex items-center gap-2.5 rounded-xl border border-line p-2.5"
+          <button
+            data-testid="smart-link-qr-toggle"
+            onClick={() => setShowQR((v) => !v)}
+            className="mt-2.5 w-full flex items-center gap-2.5 rounded-xl border border-line p-2.5 hover:border-gold/40 transition-colors"
           >
-            <div className="h-10 w-10 rounded-md bg-ink text-canvas-raised flex items-center justify-center shrink-0">
+            <div className="h-10 w-10 rounded-md bg-ink text-canvas-raised flex items-center justify-center shrink-0 p-1">
               <QrCode className="h-5 w-5" />
             </div>
-            <div className="min-w-0 flex-1">
-              <p className="text-xs font-medium text-ink">Scan QR Code</p>
+            <div className="min-w-0 flex-1 text-left">
+              <p className="text-xs font-medium text-ink">
+                {showQR ? "Hide QR Code" : "Scan QR Code"}
+              </p>
               <p className="text-[10px] text-ink-subtle truncate">
                 Buyers can view listing instantly
               </p>
             </div>
-            <ChevronDown className="h-4 w-4 text-ink-subtle -rotate-90" />
-          </div>
+            <ChevronDown
+              className={cn(
+                "h-4 w-4 text-ink-subtle transition-transform",
+                showQR ? "rotate-180" : "-rotate-90",
+              )}
+            />
+          </button>
+          {showQR ? (
+            <div
+              data-testid="smart-link-qr-canvas"
+              data-qr-value={smartLink}
+              className="mt-2.5 rounded-xl border border-line bg-canvas-raised p-4 flex flex-col items-center"
+            >
+              <div className="bg-canvas-raised p-2 rounded-lg border border-line">
+                <QRCodeSVG
+                  value={smartLink}
+                  size={144}
+                  level="M"
+                  bgColor="transparent"
+                  fgColor="#1a1a1a"
+                />
+              </div>
+              <p className="text-[10px] text-ink-subtle mt-2 text-center max-w-[16rem]">
+                Point your buyer's camera at this code to open the listing
+                instantly.
+              </p>
+            </div>
+          ) : null}
         </Card>
 
         {/* Recipient picker — appears as a chip + the CTA */}
@@ -524,6 +577,19 @@ export default function ShareListingPage() {
           </div>
         </Card>
 
+        {/* Existing engagement — when a previous campaign for this
+            listing+buyer exists, surface its tracking strip here so the
+            agent sees prior activity in context. */}
+        {existingCampaign && existingCampaignFiles.length > 0 ? (
+          <FileEngagementStrip
+            buyerFirstName={selectedLead?.buyer.name.split(/\s+/)[0]}
+            files={existingCampaignFiles}
+            events={existingCampaign.engagementEvents}
+            variant="inline"
+          />
+        ) : null}
+
+
         {/* Primary CTA: Send to {Buyer} */}
         <div className="sticky bottom-0 -mx-4 px-4 pt-3 pb-4 bg-gradient-to-t from-canvas via-canvas to-transparent">
           <Button
@@ -555,6 +621,16 @@ export default function ShareListingPage() {
           setEdited(false);
         }}
         onRegenerate={handleRegenerate}
+      />
+
+      <AttachFilesSheet
+        open={attachOpen}
+        onClose={() => setAttachOpen(false)}
+        availableFiles={availableFiles}
+        selectedFileIds={selectedFileIds}
+        onCommit={setSelectedFileIds}
+        lead={selectedLead}
+        listing={listing}
       />
 
       {/* Voice carry-over — unused names to silence TS strict */}

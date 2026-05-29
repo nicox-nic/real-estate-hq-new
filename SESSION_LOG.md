@@ -5,6 +5,84 @@ Newest sessions at top.
 
 ---
 
+## Session 5B — Attach Files + Smart Link + Engagement Simulation (marquee follow-on)
+**Date:** 2025-05-29
+**Branch:** main
+**Scope:** Attach Files bottom sheet (#22) with 3 stages (categories → select → selected) and AI Recommendation banner. Smart Link QR code rendering via `qrcode.react`. Engagement event simulation (real-time setTimeout chain firing post-Send). File Engagement Tracking strip embedded on Share Listing + Conversation thread. share-006 marquee anchor seeded.
+
+### What shipped
+
+- **`lib/types.ts`** — extended `ShareCampaign` with `smartLinkToken: string` (the trailing slug-hash segment, used by QR encoder and redirect resolver) and `engagementEvents: EngagementEvent[]` (full timeline). Added `EngagementEvent` interface + `EngagementEventKind` union (15 kinds covering link/brochure/computation/floor plan/location map/photo/video/computation request/site visit/reply/reshare).
+- **`data/shareCampaigns.ts`** — full rewrite to populate the new fields on all 5 historical campaigns + add the **share-006 marquee anchor**: Maria (lead-instagram-01 / buyer-005) + Laurel 12A sent at 2025-05-29T02:20:00.000Z (10:20 AM PHT, ~2 hours before the seed reference time). 4 attachments (Brochure / Computation / Floor Plan / Location Map). 5 engagement events at 02:22 / 02:24 / 02:26 / 02:27 / 02:28 UTC — which render as 10:22 / **10:24 / 10:26 / 10:27 / 10:28 AM** in PHT, matching the mockup's File Engagement Tracking strip EXACTLY.
+- **`lib/logic/aiFileRecommendation.ts`** — **sibling helper** `recommendFilesFor({ lead, listing, availableFiles })`. Same 7-rule routing as `aiShareMessage` (Rule of Five for declarative rule tables now confirmed across the codebase: TONE_MARKERS / SEARCH_RULES / SHARE_RULES / FILE_RECOMMENDATION_RULES / AI Reply rules):
+  - investor → Brochures + Computations + Price List
+  - ofw → Brochures + Computations + Payment Terms
+  - familyEndUser → Brochures + Computations + Floor Plans + Location Map ← matches the mockup's 4-file selection
+  - luxury (≥₱25M) → Brochures + Photos + Floor Plans
+  - firstTimeBuyer → Brochures + Computations
+  - rental → Brochures + Price List
+  - default → Brochures + Computations
+  `FILE_RECOMMENDATION_RULES` declarative table is the public, verify-locked contract. Resolves categories → file IDs by preferring official developer files when present, otherwise the first file in the category.
+- **`lib/logic/engagementSimulator.ts`** — `buildEngagementSchedule()` is the pure schedule builder + `useEngagementSimulation()` is the React hook that dispatches the schedule via setTimeouts. **Attachment-aware**: brochure_opened only fires if a brochure was attached; floor_plan_viewed only if a floor plan was attached; etc. Probabilistic site_visit_requested fires at the 38s mark with 40% probability, only if a brochure or computation was attached. Determinism via seeded LCG (verify uses fixed seed). Cleans up timers on unmount. `SIMULATOR_TIMINGS` constants exported for verify.
+- **`lib/shareStore.ts`** — added `appendEngagementEvent(campaignId, { kind, fileId })` that handles BOTH sent campaigns (mutates the campaign's events array in place + bumps scalar counters) AND seed campaigns (writes to a shadow buffer that's merged on read). `getEngagementEvents(campaignId)` returns the merged events sorted by `at` ascending.
+- **`components/share/AttachFilesSheet.tsx`** — three-stage bottom sheet matching the mockup's bottom row:
+  - **Stage 1 (categories):** AI Recommendation banner at top (with rule transparency + Apply → affordance + recommended-category chips) + 9 category tiles (Photos / Brochures / Floor Plans / Computations / Price List / Payment Terms / Location Map / Requirements / Upload New File). Each tile shows a colored icon + label + subtitle + selected count badge if any.
+  - **Stage 2 (select):** All / PDF / Images / Docs / Links format tabs + search bar + scrollable file rows with sage-deep circular checkmark + file icon badge + file name + size·format + AI badge on individually recommended files. Footer: "N files selected (X MB)" + green "Add Files" button.
+  - **Stage 3 (selected):** review list with remove × per row + yellow Tip card ("Buyers love it when you send complete information...") + green "Done" button + "Clear All" in header.
+  - State management: staged selection diverges from props until Done/Add Files commits; re-syncs when sheet opens. Body scroll locked while open.
+- **`components/share/FileEngagementStrip.tsx`** — post-send live engagement view. Pure rendering from props (files + events). Per-file status cards with sage-deep eye icon + live-pulse animation on the most-recent engaged file. Per-event label/timestamp resolution via pure `labelFor(kind)` + `categoryShortLabel(category)` helpers (exported for verify). Two variants: `inline` (default, compact header) and `standalone` (larger header). `formatTime()` uses `toLocaleTimeString("en-PH", { timeZone: "Asia/Manila" })` so the UTC-stored times render correctly as Manila wall-clock.
+- **`qrcode.react@4.2.0`** installed. Library disk size 148KB; gzipped client bundle contribution ~6KB (under the framing's 12KB budget). `<QRCodeSVG value={smartLink} size={144} level="M" />` renders an SVG QR code on the Share Listing page when the user taps "Scan QR Code".
+- **Share Listing page wiring**:
+  - `[attachOpen, setAttachOpen]` state — opens the AttachFilesSheet
+  - `[showQR, setShowQR]` state — toggles real QR code visibility
+  - AttachFilesSheet mounted alongside ShareRefineSheet
+  - QR placeholder replaced with real `<QRCodeSVG>` (data-qr-value attribute exposes the encoded URL for verify)
+  - `existingCampaign` memo finds the most recent campaign for the selected listing+buyer; if present, the FileEngagementStrip surfaces below the recipient picker. This is why opening Maria + Laurel 12A immediately shows the share-006 strip with all 4 files in their engagement state.
+- **Conversation thread page wiring** (`/agent/leads/[leadId]`):
+  - `useSearchParams` reads `?shared=` query (set by Send action redirect from Share Listing or Preview Message)
+  - `liveCampaign` memo: prefers `findCampaign(sharedId)` for a fresh send; falls back to the most recent campaign for the listing+buyer for first-paint demo (share-006 surfaces immediately on Maria's thread)
+  - "Just shared" sage-soft banner renders when `?shared=` is set
+  - `useEngagementSimulation(liveCampaign, filesById, appendEvent)` — when the live campaign has no events yet (fresh send), the hook schedules events that fire over the next ~40s; `eventsTick` state forces re-render on each event arrival
+  - FileEngagementStrip rendered with `liveEvents` (merged seed + shadow buffer); the strip's live-pulse animation runs on the most-recently engaged file
+
+### Decisions and engineering notes (carry-forwards)
+
+- **AI file recommendation built as a sibling helper** (`recommendFilesFor`), not added as a context arg to `generateShareMessage`. Same architectural shape as `applyShareTone` vs `applyTone` from 5A. The two helpers share the 7-rule routing skeleton but produce different outputs (one returns prose, the other returns file categories). Naming this as another instance of the **sibling-helper pattern** the codebase principle named in 5A's report.
+- **Rule of Five for declarative rule tables confirmed across the codebase**: TONE_MARKERS (3B) / SEARCH_RULES (4B) / SHARE_RULES (5A) / **FILE_RECOMMENDATION_RULES (5B)** / AI Reply rules. Plus engagementSimulator's timing table follows the same shape. The pattern is now generative: any rule-driven module follows this shape.
+- **Smart Link token format**: lowercase alphanumeric, 4 characters, deterministic FNV-1a hash over `listingId|agentId|buyerLeadId`. Trailing segment of the URL after the slug. Stored separately on `ShareCampaign.smartLinkToken` so the redirect resolver can look up by token (when backend lands). The QR encodes the full URL (including https://) so any QR app routes correctly. **Under the 12KB framing budget**: qrcode.react contributes ~6KB gzipped, the simulator + recommendation + sheet contribute ~3-4KB combined (~9-10KB total).
+- **Engagement simulator timings**: 3s / 6s / 12s / 18s / 25s / 38s (vs framing's suggested 5s / 10s / 15s / 25s / 40s). Slightly tighter pacing: the link_opened event needs to fire faster than the framing suggested to feel responsive (3s vs 5s), and the file events shift accordingly. The site_visit_requested at 38s keeps the original ~40s ceiling. **Feels right for demo pacing — the agent sees the strip animate as they're still on the page.** 40% probability for site visit is exact per the framing.
+- **File Engagement Tracking strip composed as a reusable component** (`<FileEngagementStrip files={} events={} />`), not bespoke to a single route. Used by:
+  - Share Listing page (existingCampaign surface, post-send tracking visible inline)
+  - Conversation thread page (liveCampaign surface, fresh-send tracking with simulator)
+  - Future surfaces (Listing Detail when built, Campaign analytics page) compose the same component
+- **share-006 marquee anchor pattern**: same shape as Cherry's noise-anchor + Marisol's contradiction-anchor from earlier sessions. Lock the exact agent (agent-001) + listing (listing-laurel-12a) + buyer (buyer-005) + 4-attachment set + 5 events with exact timestamps. This is the demo's "look — engagement is happening live" beat: opening Maria's thread shows the strip with Brochure Opened 10:24 / Computation Downloaded 10:26 / Floor Plan Viewed 10:27 / Location Map Opened 10:28, matching the mockup precisely.
+- **Timestamp convention for engagement strip**: UTC-stored ISO strings rendered with `toLocaleTimeString("en-PH", { timeZone: "Asia/Manila" })`. For the strip to read "10:24 AM" the UTC stored time must be 02:24:00Z. This is the same convention used elsewhere in the codebase for `sentAt` rendering. The seed times are calibrated to Manila wall-clock.
+- **AI Recommendation lives inside the Attach Files sheet, not as a Share Listing sidebar** — per the Session 5A ratification ("AI recommendations surface in the contextual sheet where the relevant decision is made"). The mockup's "AI Recommendation" sidebar in image 2 was illustrative; the routed implementation matches the calm-UX discipline.
+
+### Verify
+
+- TypeScript: clean (`tsc --noEmit`).
+- Build: **34 routes**. Share Listing 17.9 kB / 149 kB First Load (+9.27 kB from 5A's 8.63 kB, accounting for the sheet + QR + strip). Conversation thread 8.82 kB / 140 kB. Preview Message unchanged at 5.14 kB / 128 kB.
+- Verify: **1269 / 1269 passed** (+156 from Session 5A's 1113). Distribution:
+  - Section 1 FK Integrity: 483 → 489 (+6 from new engagement events referencing files)
+  - **Section 16 Attach Files + Engagement: 147 new asserts — largest single-session verify section in the suite to date** (was 96 in 5A, 80 in 3B)
+  - Section 15 PRD Coverage: 62 → 65 (+3 from Session 5B advancement)
+
+### Stop signal met
+
+End-to-end share-and-track flow walkable:
+- ✅ Open Unit Inventory → tap "Share to my pipeline" on unit-laurel-12a → Share Listing opens with Maria pre-selected, share-006 FileEngagementStrip shows below recipient picker (4 cards: Brochure Opened 10:24 / Computation Downloaded 10:26 / Floor Plan Viewed 10:27 / Location Map Opened 10:28)
+- ✅ Tap "View All" or "Add More" on Attach Files row → AttachFilesSheet opens at stage 1 with AI Recommendation banner ("familyEndUser · Family end-user — brochure, computation, floor plan, location map" + 4 category chips + "Apply →")
+- ✅ Tap "Apply →" → stage 3 (Selected Files) with 4 files listed + Tip card + Done
+- ✅ Tap Brochures category → stage 2 with All/PDF/Images/Docs/Links tabs + search + file rows with AI badges on recommended files + "Add Files" footer
+- ✅ Tap "Scan QR Code" → real `<QRCodeSVG>` renders, encoding the smart link URL (data-qr-value matches `smartLinkFor(...)`)
+- ✅ Tap "Send to Maria Santos" → ShareCampaign created + ConversationMessage dropped into Maria's thread + redirect to `/agent/leads/lead-instagram-01?shared={campaignId}`
+- ✅ Conversation thread renders "Sent — Watch this space" banner + FileEngagementStrip with the just-sent campaign's files
+- ✅ Engagement simulator fires events over 40s window: link_opened at +3s, brochure_opened at +6s (file-001), computation_downloaded at +12s (file-002), floor_plan_viewed at +18s, location_map_opened at +25s, site_visit_requested at +38s (40% probability — deterministic with seed)
+- ✅ Each event arrival re-renders the strip; live-pulse animation moves to the most-recently engaged file
+
+---
+
 ## Session 5A — Share Listing + Preview Message (FIRST MARQUEE MOCKUP-MATCHING SESSION)
 **Date:** 2025-05-29
 **Branch:** main

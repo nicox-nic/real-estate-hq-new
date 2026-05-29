@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, User, Sparkles } from "lucide-react";
 import { AppShell } from "@/components/layout/AppShell";
@@ -37,6 +37,14 @@ import {
   sendMessage,
   useConversationThread,
 } from "@/lib/conversationStore";
+import {
+  findCampaign,
+  appendEngagementEvent,
+  getEngagementEvents,
+  useShareCampaignsForListing,
+} from "@/lib/shareStore";
+import { useEngagementSimulation } from "@/lib/logic/engagementSimulator";
+import { FileEngagementStrip } from "@/components/share/FileEngagementStrip";
 
 /**
  * Buyer Conversation (#12) — full implementation.
@@ -67,6 +75,7 @@ import {
 export default function BuyerConversationPage() {
   const params = useParams<{ leadId: string }>();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const leadId = params.leadId;
 
   const lead = React.useMemo(
@@ -96,6 +105,57 @@ export default function BuyerConversationPage() {
         ? seedPropertyFiles.filter((f) => f.listingId === interestedListing.id)
         : [],
     [interestedListing],
+  );
+
+  // Resolve a recent campaign — either the one indicated by ?shared= (just
+  // sent), or the most recent existing share for this listing+buyer combo
+  // (for the demo: the seeded share-006 for Maria+Laurel surfaces on first
+  // paint so the strip has data).
+  const sharedCampaignId = searchParams.get("shared");
+  const allCampaignsForListing = useShareCampaignsForListing(
+    interestedListing?.id ?? "",
+  );
+  const liveCampaign = React.useMemo(() => {
+    if (sharedCampaignId) return findCampaign(sharedCampaignId);
+    if (!lead) return undefined;
+    // Most recent campaign for this listing + buyer
+    const matching = allCampaignsForListing
+      .filter((c) => c.buyerProfileId === lead.buyer.id)
+      .sort((a, b) => b.sharedAt.localeCompare(a.sharedAt));
+    return matching[0];
+  }, [sharedCampaignId, allCampaignsForListing, lead]);
+
+  const filesById = React.useMemo(
+    () => new Map(seedPropertyFiles.map((f) => [f.id, f])),
+    [],
+  );
+
+  // Engagement events for the live campaign (merged seed + sent shadow)
+  const [eventsTick, setEventsTick] = React.useState(0);
+  const liveEvents = React.useMemo(
+    () => (liveCampaign ? getEngagementEvents(liveCampaign.id) : []),
+    // eventsTick is a dependency to force re-read after simulator fires
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [liveCampaign?.id, eventsTick],
+  );
+
+  // Attached files for the live campaign
+  const liveCampaignFiles = React.useMemo(() => {
+    if (!liveCampaign) return [];
+    return liveCampaign.attachedFileIds
+      .map((id) => filesById.get(id))
+      .filter((f): f is NonNullable<typeof f> => !!f);
+  }, [liveCampaign, filesById]);
+
+  // Drive the engagement simulator. Only fires if the live campaign has no
+  // events yet (i.e. a fresh send arrived via ?shared=).
+  useEngagementSimulation(
+    liveCampaign ?? null,
+    filesById,
+    React.useCallback((cid, ev) => {
+      appendEngagementEvent(cid, { kind: ev.kind, fileId: ev.fileId });
+      setEventsTick((t) => t + 1);
+    }, []),
   );
 
   // Live thread
@@ -249,6 +309,33 @@ export default function BuyerConversationPage() {
             </Link>
           </div>
         </Card>
+
+        {/* File Engagement Tracking — shown when a recent ShareCampaign
+            exists for this listing+buyer. The seeded share-006 (Maria +
+            Laurel 12A) surfaces on first paint; a fresh ?shared=... routes
+            here after Send and the simulator drives live events. */}
+        {liveCampaign && liveCampaignFiles.length > 0 ? (
+          <div data-testid="live-campaign-section">
+            {sharedCampaignId ? (
+              <div
+                data-testid="just-shared-banner"
+                className="rounded-2xl bg-sage-soft border border-sage-deep/15 p-3 mb-3 inline-flex items-center gap-2 w-full"
+              >
+                <Sparkles className="h-4 w-4 text-sage-deep shrink-0" />
+                <p className="text-xs text-ink">
+                  <span className="font-medium">Sent.</span> Watch this space
+                  — engagement events will appear as {lead.buyer.name.split(/\s+/)[0]} interacts with your share.
+                </p>
+              </div>
+            ) : null}
+            <FileEngagementStrip
+              buyerFirstName={lead.buyer.name.split(/\s+/)[0]}
+              files={liveCampaignFiles}
+              events={liveEvents}
+              variant="inline"
+            />
+          </div>
+        ) : null}
 
         {/* Thread */}
         <Card>

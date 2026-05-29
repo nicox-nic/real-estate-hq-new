@@ -449,6 +449,32 @@ export type ShareChannel =
   | "Smart Link"
   | "QR Code";
 
+export type EngagementEventKind =
+  | "link_opened"
+  | "brochure_opened"
+  | "brochure_downloaded"
+  | "computation_opened"
+  | "computation_downloaded"
+  | "floor_plan_viewed"
+  | "location_map_opened"
+  | "price_list_opened"
+  | "payment_terms_opened"
+  | "photo_viewed"
+  | "video_watched"
+  | "computation_requested"
+  | "site_visit_requested"
+  | "reply_received"
+  | "reshared";
+
+export interface EngagementEvent {
+  id: string;
+  shareCampaignId: string;
+  /** The file involved (if file-specific), else undefined for link_opened/reply_received/etc. */
+  fileId?: string;
+  kind: EngagementEventKind;
+  at: string;
+}
+
 export interface ShareCampaign {
   id: string;
   listingId: string;
@@ -456,16 +482,24 @@ export interface ShareCampaign {
   buyerProfileId?: string;
   channel: ShareChannel;
   smartLinkUrl: string;
+  /** Opaque token (the trailing segment of smartLinkUrl). Stored separately
+   *  so the QR encoder and the redirect resolver can look up the campaign. */
+  smartLinkToken: string;
   message: string;
   attachedFileIds: string[];
   sharedAt: string;
-  // Engagement
+  // Engagement — scalar counters derived from engagementEvents on read,
+  // kept as fields for cheap dashboard aggregation.
   opens: number;
   brochureClicks: number;
   computationRequests: number;
   siteVisitBookings: number;
   replies: number;
   reshares: number;
+  /** Full engagement timeline. Empty array on a fresh send; populated by
+   *  the simulator (Session 5B). Each event references a fileId when the
+   *  engagement is on a specific attachment. */
+  engagementEvents: EngagementEvent[];
 }
 
 export type MessageSender = "buyer" | "agent" | "ai";

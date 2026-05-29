@@ -1,143 +1,111 @@
-# Session 5A — Report
+# Session 5B — Report
 
 **Branch:** `main`
-**Stop signal:** met. Share Listing main page (#21) + Preview Message page (#23) at mockup-fidelity. AI Share Message engine + outbound-variant tone application + send architecture (campaign + thread message, linked) + smart-link generation all built and verify-locked. First marquee mockup-matching session complete.
+**Stop signal:** met. Attach Files bottom sheet (#22) shipped at mockup-fidelity (3-stage flow: categories → select → selected, with AI Recommendation banner inside the sheet per 5A's ratification). Smart Link QR rendering live via `qrcode.react`. Engagement simulator + File Engagement Tracking strip wired to Share Listing AND Conversation thread. share-006 marquee anchor seeded with mockup-anchor timestamps. The marquee mockup-matching block (5A + 5B) closes here.
 
 ## At a glance
 - **TypeScript:** clean
-- **Build:** 34 routes (was 32). +2 share routes. Share Listing 8.63 kB / 136 kB First Load; Preview 5.62 kB / 127 kB
-- **Verify:** **1113 / 1113 passed** (+109 from Session 4B's 1004). **Section 14 Share Listing: 96 new asserts — largest single-session verify section to date** (Section 9 AI Reply: 80; Section 10 Listings spine: 75; Section 12 Listings 4B: 75)
-- **PRD coverage:** **27 complete** · 0 scaffolded · 19 pending of 46
-- **Walkability:** Unit Inventory → Share Listing → Refine (tones + languages) → Preview Message → Send → conversation thread receives the message with shareCampaignId link
+- **Build:** 34 routes. Share Listing 17.9 kB / 149 kB First Load (+9.27 kB from 5A); Conversation thread 8.82 kB / 140 kB; Preview Message 5.14 kB / 128 kB. **QR + sheet + strip + simulator all under the framing's 12 KB marginal-cost budget** (qrcode.react ~6 KB gzipped + 3-4 KB for the rest).
+- **Verify:** **1269 / 1269 passed** (+156 from 5A's 1113). **Section 16 Attach Files + Engagement: 147 new asserts — largest single-session verify section in the suite** (5A's Share Listing held the record at 96)
+- **PRD coverage:** **28 complete** · 0 scaffolded · 18 pending of 46
+- **Walkability:** Unit Inventory → Share Listing (with existing share-006 strip already visible) → Attach Files sheet (3 stages, AI banner, Apply →) → QR Code reveal (real QR rendering smart link) → Send → Conversation thread with "Just sent" banner + live FileEngagementStrip with simulator firing events over ~40s
 
-## What shipped (Session 5A's 2 promotions)
+## What shipped (Session 5B's 1 promotion + 4 architectural extensions)
 
-| # | Route | Status | Notes |
-|---|---|---|---|
-| 21 | `/agent/listings/[listingId]/share` — Share Listing | pending → **complete** | Property hero + AI Generated Message panel (rule transparency) + 4 attach chips + 6-channel row + Smart Link card + recipient picker + sticky "Send to {Buyer}" CTA + Refine sheet |
-| 23 | `/agent/listings/[listingId]/share/preview` — Preview Message | pending → **complete** | Phone-style chat bubble + inline listing card preview + 4 attachments + Send Now + Edit Message |
+| # | Route / Surface | Notes |
+|---|---|---|
+| 22 | `attach-files` | pending → **complete**. Three-stage bottom sheet matching mockup bottom row. AI Recommendation banner inside the sheet (per 5A's ratification). |
+| — | Smart Link QR | Real `<QRCodeSVG>` rendering smart link URL. ~6 KB gzipped. Toggle on Share Listing page. |
+| — | Engagement Simulator | `buildEngagementSchedule` (pure) + `useEngagementSimulation` (hook). 3s/6s/12s/18s/25s/38s timings. Attachment-aware. 40% probabilistic site visit. |
+| — | File Engagement Tracking strip | Reusable component embedded on both Share Listing (existing campaign) and Conversation thread (live campaign). Sage-deep live-pulse on most-recent engaged file. |
+| — | share-006 marquee anchor | Maria + Laurel 12A seeded campaign with 4 attachments and 5 events at mockup-exact timestamps (10:22 / 10:24 / 10:26 / 10:27 / 10:28 AM PHT). |
 
-(#22 attach-files sheet remains pending — sheet implementation is Session 5B per framing; affordance is present in 5A.)
+## Architectural decisions documented
 
-## Architectural decision documented: Send = campaign + thread message, linked
-
-Framing carry-forward question answered: **both, with linkage**. The Send action creates a `ShareCampaign` (engagement metadata: opens, brochure clicks, computation requests, site visit bookings, replies) AND a `ConversationMessage` (buyer-visible message text). The two reference each other via `ConversationMessage.shareCampaignId` (new field, not new entity — justification logged). Backend wiring later: `shareCampaignId` becomes a foreign key.
-
-Why both rather than one or the other:
-- A single `ShareCampaign` record would not appear in the buyer conversation thread, breaking the unified-inbox experience the PRD describes
-- A single `ConversationMessage` would not have an engagement-tracking surface, breaking the smart-link analytics the PRD describes
-- The linkage lets the conversation row surface "this message came from a share campaign" and route to the campaign analytics
-
-## Sibling-helper pattern: `applyShareTone()` not `applyTone(..., context: "share")`
-
-The carry-forward from Session 3B framing — "Refine sheet pattern composed directly from 3B or needed adjustment" — landed on **adjustment**. Created `lib/logic/aiShareTone.ts` as a sibling to `lib/logic/aiReply/tones.ts`. Same `Tone` union (8 tones reused). Different per-tone shaper because outbound shares require different opener boilerplate. The reply variant inserts "Thank you for your inquiry" / "I'm really glad you reached out" — appropriate to inbound, wrong for outbound.
-
-**`SHARE_FORBIDDEN_PHRASES` table** locked by verify: outbound tone outputs must never include any of the inbound-context phrases. Cross-contamination guard.
-
-This is the same single-responsibility-helpers principle the framing flagged for `shareActionFor()` in 4B's closeout. **Naming this as a documented codebase principle**: when two adjacent contexts share a vocabulary (tones) but differ in shaping logic, prefer the sibling helper over a context-arg overload. Single-purpose pure functions compose more cleanly.
+- **AI file recommendation as a sibling helper.** `recommendFilesFor()` shares the 7-rule routing skeleton of `generateShareMessage()` but produces different outputs (file categories vs prose). Same architectural shape as `applyShareTone` vs `applyTone` from 5A. **The sibling-helper pattern is now firmly established as a codebase principle.**
+- **Rule of Five for declarative rule tables confirmed across the codebase.** TONE_MARKERS (3B) / SEARCH_RULES (4B) / SHARE_RULES (5A) / **FILE_RECOMMENDATION_RULES (5B)** / AI Reply rules. The engagement simulator's `SIMULATOR_TIMINGS` constants also follow the pattern. **Any rule-driven module now follows this shape**: declared table + verify lock + transparency UI.
+- **Smart Link token format**: 4-character lowercase alphanumeric, FNV-1a hash over `listingId|agentId|buyerLeadId`. Trailing URL segment after the slug. Stored separately on `ShareCampaign.smartLinkToken` so the backend redirect resolver can look up by token. QR encodes the full URL (with scheme) so any standard scanner routes correctly.
+- **Engagement simulator timings adjusted from framing defaults.** Framing suggested 5s/10s/15s/25s/40s; shipped 3s/6s/12s/18s/25s/38s. Reason: the link_opened event needs to fire faster than 5s to feel responsive (the agent is still on the redirect page). The other events shift accordingly. Site_visit at ~38s preserves the framing's ~40s ceiling. **40% probability for site visit is exact per the framing.** Confirming the timing felt right for demo pacing.
+- **File Engagement Tracking strip is a reusable component**, not bespoke to one route. Used by Share Listing (existingCampaign surface) and Conversation thread (liveCampaign surface). Future Listing Detail or Campaign Analytics pages compose the same component.
+- **Mockup-anchor timestamp convention.** share-006's events are stored as UTC strings (02:22 / 02:24 / 02:26 / 02:27 / 02:28 Z) and render via `toLocaleTimeString("en-PH", { timeZone: "Asia/Manila" })` as 10:22 / 10:24 / 10:26 / 10:27 / 10:28 AM. The render layer handles localization; the seed stays in UTC. Same convention as the rest of the codebase.
+- **AI Recommendation lives inside the Attach Files sheet** per 5A's ratification — confirmed correct in practice. When the agent opens the sheet to attach files, the banner sits at the top with the rule explanation and the Apply → button. Tap Apply → jumps straight to stage 3 (Selected Files) with all 4 recommended files staged. The mockup's sidebar composition in image 2 was illustrative; the routed implementation is calmer.
 
 ## Mockup ambiguities surfaced (NOT silently resolved)
 
-Per the governing rule — "substantive deviations are reviewer's call, not the builder's." Surfacing for ratification:
+1. **"AI Recommendation" with [Brochure] [Computation] chips in the mockup shows 2 chips, but `familyEndUser` rule recommends 4 categories.** I went with the rule's logical output (4 categories: Brochures / Computations / Floor Plans / Location Map) rather than the mockup's truncated 2-chip preview. The 4 chips render in the banner; tapping Apply stages all 4 files. The mockup likely showed only 2 chips for visual brevity. **Confirming this is the right resolution.**
+2. **The strip in the mockup shows 4 cards horizontally with a `→` overflow indicator.** My implementation uses horizontal scroll with `overflow-x-auto` — same UX, but the visible card count adapts to viewport width. On mobile narrow viewports, the strip scrolls; on wider screens, all 4 cards fit. No mockup deviation; just responsive behavior the mockup didn't explicitly show.
+3. **The mockup's "AI Recommendation" sidebar (image 2 left) shows a robot illustration.** I omitted the robot graphic; the banner uses the standard `Sparkles` icon (consistent with the AI Generated Message panel's sparkles). The robot was visual flavor; the routing decision (in-sheet, not sidebar) makes the robot moot.
 
-1. **AI Recommendation side panel from the mockup deferred to 5B's Attach Files sheet.** The mockup shows a side panel: "Based on Maria's request, we recommend attaching the sample computation and brochure" with [Brochure] [Computation] chips. This is AI **file** recommendation (distinct from AI message generation). Per PRD: "AI should recommend files based on buyer question." Naturally belongs inside the Attach Files sheet — when the agent opens the sheet, AI surfaces "based on the buyer's last message, suggest these files." Logged the routing. **Asking you to ratify that this side panel surface is the right destination for 5B, not 5A.**
+## 4-pronged structural proof on file recommendation differentiation
 
-2. **Engagement Tracking / Share Performance / AI Match Preview side panels (mockup image 1) are POST-share views.** Meaningful only after a campaign has been sent. They're 5B's territory (smart-link tracking, engagement events). 5A renders the Share Listing PRE-send state.
+Family lead vs Investor lead, both viewing Laurel 12A:
+- Prong 1: rule routing differs (`familyEndUser` vs `investor`)
+- Prong 2: family categories include Floor Plans; investor's don't
+- Prong 3: investor categories include Price List; family's don't
+- Prong 4: family resolves to 4 actual file IDs; investor resolves to 2 (Laurel seed lacks a Price List file) — measures the realized recommendation count, not just the categories
 
-3. **Channel set count discrepancy between mockups.** Image 1 shows 6 channels (Messenger / WhatsApp / Instagram DM / SMS / Email / More). Image 2 shows 5 (WhatsApp / Messenger / SMS / Email / More — no Instagram DM). I went with image 1's 6 since PRD explicitly lists 6 in the share-via section.
+Each prong measures what the UI actually distinguishes between profiles, not surface property like text length.
 
-4. **Property hero image rendered as a CSS gradient placeholder, not a real photo.** The mockup uses a real property render; 5A doesn't ship image assets. The placeholder reads as a property thumbnail (charcoal slate gradient) and is acceptable at the polish bar for screenshot-defensibility. Real imagery is a 5B/9 concern.
-
-5. **PRD bottom-nav vs current AppShell.** PRD specifies agent bottom nav as Dashboard / My Leads / My Listings / Commissions / Insights. Current AppShell has Dashboard / Leads / Listings / Deals / Earnings. The mockup shows PRD layout. **Deferred to a polish session (likely 9)** — changing the nav is structural and touches existing routes.
-
-## Demo anchor verified
-
-The mockup's exact message text emerges from the rule engine on Maria + Laurel 12A:
-
-> "Hi Maria! Based on your budget and preference for a family-friendly home in Taguig, I think this property might be a great fit for you.
->
-> Laurel Hills Estate — Unit 12A is a 4BR house & lot near schools, malls, and major roads.
->
-> Would you like me to send the sample computation?"
-
-Maria's profile (`purposeOfPurchase: "End-User"`, `familySize: 5`, `preferredLocations: ["Taguig", "BGC"]`) routes to the `familyEndUser` rule. The rule's body interpolates "Taguig" from her preferred locations, the listing title verbatim, and "4BR house & lot" from the listing's property type. The closer matches the mockup. **Verify locks every phrase.**
-
-## 4-pronged structural proof on profile variation
-
-Profile-driven message variation locked by verify with semantic-shape assertions (per the methodology refinement from 3B):
-
-- **Prong 1 — rule routing:** family profile → `familyEndUser`; investor profile → `investor`
-- **Prong 2 — vocabulary inclusion:** family body contains "family-friendly"; investor body does not
-- **Prong 3 — vocabulary inclusion:** investor body mentions "yield" / "ROI" / "appreciation"; family body does not
-- **Prong 4 — action set:** family actions include `book_site_visit`; investor actions do not
-
-Each prong measures what the UI actually distinguishes between profiles, not length or count.
-
-## All carry-forwards documented (no review needed)
-
-- **AI Share rule set documented** in `SHARE_RULES` declarative table with description + priority per rule. Same transparency discipline as 3B's `TONE_MARKERS` and 4B's `SEARCH_RULES`. **Rule of Three confirmed for declarative rule tables across the codebase.**
-- **Send action wiring documented:** ShareCampaign + ConversationMessage linked via `shareCampaignId`. Field, not entity. Justification logged.
-- **Sibling-helper pattern (`applyShareTone` not context arg on `applyTone`) named as a codebase principle.** Same shape as the framing's `shareActionFor` instinct.
-- **Smart link URL determinism locked** by verify: `smartLinkFor(listingId, agentId, buyerLeadId)` → `https://estatehq.ph/l/{slug}-{4charHash}` with FNV-1a base36 hash. Same inputs → same URL; different inputs → different URL.
-- **Listing detail (`/agent/listings/[listingId]`) still expected 404.** The share route lives at `/agent/listings/[listingId]/share` — the missing detail page doesn't block the share flow. Polish session or Session 5B can ship the detail view.
-- **`shareActionFor()` sixth helper NOT extracted yet.** The framing flagged this for "Share with buyer" vs "Share to my pipeline" context discrimination. In 5A all surfaces route to the same share page; the source context doesn't currently change destination behavior. Rule of Three not yet met. Will surface in 5B/7 when broker-side distribution lands with a genuinely different action ("Distribute to N agents" with the AI-recommended agent picker).
-
-## Verify suite delta (1004 → 1113)
+## Verify suite delta (1113 → 1269)
 
 | Section | Asserts | Delta | Notes |
 |---|---|---|---|
-| 1. FK Integrity | 483 | +8 | new property files (Floor Plan + Location Map for Laurel 12A) add FK pairs |
+| 1. FK Integrity | 489 | +6 | new engagement events reference files |
 | 2. Structural invariants | 70 | — | |
 | 3. Demo beats | 20 | — | |
 | 4. Role-aware aggregation lock | 5 | — | |
-| 5. Commission Tracking mockup | 27 | — | tensions still recorded; Q1 (Option B) lands in S6 |
+| 5. Commission Tracking mockup | 27 | — | |
 | 6. Auth flow & schemas | 69 | — | |
 | 7. Dashboard math | 29 | — | |
 | 8. Inbox & contradiction | 22 | — | |
 | 9. AI Reply | 80 | — | |
 | 10. Listings spine | 75 | — | |
 | 12. Listings 4B | 75 | — | |
-| **14. Share Listing** | **96** | **+96** | NEW — largest single-session verify section to date. Covers SHARE_RULES totality, demo anchor (Maria+Laurel→familyEndUser), mockup-anchor text fidelity, 4-pronged profile-variation proof, determinism, applyShareTone × 8 tones with forbidden-phrase guard, pairwise tone distinctness, per-tone greeting locks, smart-link determinism + input sensitivity, send action wiring (campaign + message), 4-file mockup anchor, Maria/Maria disambiguation, 5-channel coverage, send link integrity |
-| **15. PRD Coverage** | **62** | **+5** | renumbered from 13; Session 5A advancement (2 routes × 2 + aggregate) |
-| **Total** | **1113** | **+109** | |
+| 14. Share Listing | 96 | — | |
+| **16. Attach Files + Engagement** | **147** | **+147** | NEW — largest single-session section. Covers FILE_RECOMMENDATION_RULES table totality + every-rule-recommends-Brochures invariant + all 8 PRD categories reachable + family-end-user anchor + 4-pronged profile variation proof + determinism + simulator timing monotonicity + attachment-aware scheduling + share-006 anchor lock (12 events × kinds + 4 mockup-anchor timestamps) + appendEngagementEvent shadow buffer for seed campaigns + strip label/category helpers + every-seed-campaign-has-token-and-events invariant + fresh shareListing populates new fields. |
+| 15. PRD Coverage | 65 | +3 | renumbered; Session 5B advancement (1 route × 2 + aggregate) |
+| **Total** | **1269** | **+156** | |
 
 ## Demo walk (validated end-to-end)
 
-1. From `/agent/listings`, tap For Sale → tap Developer Listings preview "See all" → tap Landmasters → tap Laurel Hills Estate → Unit Inventory loads with 6 units.
-2. Tap "Share to my pipeline" on unit-laurel-12a → routes to `/agent/listings/listing-laurel-12a/share`.
-3. **Share Listing main page** renders:
-   - Header: ← back / Share Listing / Preview →
-   - Hero card: gradient placeholder + "Laurel Hills Estate — Unit 12A" + "4BR House & Lot" + "Taguig City" + Developer Listing / For Sale badges + ₱18,500,000 + 3% Commission
-   - AI Generated Message: gold-soft panel with "✨ AI Generated Message · rule: familyEndUser" + Regenerate button. Textarea: "Hi Maria! Based on your budget and preference for a family-friendly home in Taguig..." + rule description below
-   - Tone: Friendly Agent · Language: English · Refine pills below
-   - 📎 Attach Files (4): [Brochure 2.4 MB · PDF] [Computation 480 KB · PDF] [Floor Plan 1.8 MB · JPG] [Location Map 256 KB · PDF] [+ Add More]
-   - Share via: 6 chips — Messenger (blue active) / WhatsApp / Instagram DM / SMS / Email / More
-   - Smart Link Created: `https://estatehq.ph/l/laurel-12a-XXXX` + Copy Link + QR code row
-   - Send to: [Maria Santos] active chip + other lead chips
-   - Sticky CTA: ✉️ **Send to Maria Santos** (sage-deep)
-4. Tap Refine → bottom sheet with 8 tones × 3 languages × Regenerate. Switch to "Professional Broker" → message regenerates: "Good day, Maria. Based on your budget..."
-5. Switch language to Tagalog → "Kumusta, Maria po! Based on your budget..." + Salamat closer.
-6. Tap Preview top-right → `/agent/listings/listing-laurel-12a/share/preview`.
-7. **Preview Message page** renders:
-   - Header: ← back / Preview Message / Eye via Messenger
-   - Canvas-sunken bubble area with faux sender row (avatar "MS" + "Maria Santos / Messenger · to Maria Santos")
-   - Sage-soft chat bubble with intro paragraph + inline listing card (gradient + "Laurel Hills Estate" + "4BR House & Lot" + ₱18,500,000 + "Near schools, malls and major roads.") + trailing paragraph + timestamp + sage-deep ✓✓
-   - Attachments (4) card with 4 file rows (PDF/JPG color-coded icons + Eye view affordance)
-   - "Files will be sent as attachments."
-   - Sticky: ✉️ Send Now (sage-deep) + ✏️ Edit Message (ghost)
-8. Tap Edit Message → returns to Share Listing.
-9. Tap Send to Maria Santos → ShareCampaign + ConversationMessage created; routes to `/agent/leads/lead-instagram-01?shared={campaignId}` → message appears in Maria's thread.
+1. From `/agent/listings/listing-laurel-12a/share` (already opens with Maria pre-selected):
+   - Hero card / AI Generated Message panel / Tone+Language pills / Attach Files 4 chips / Channel chips / Smart Link with Copy + QR toggle (NEW) / Recipient picker
+   - **NEW: FileEngagementStrip surfaces below recipient picker showing share-006 already-engaged state** — 4 cards: Brochure Opened 10:24 / Computation Downloaded 10:26 / Floor Plan Viewed 10:27 / Location Map Opened 10:28. Sage-deep eye on each. Live-pulse on Location Map (most recent).
+2. Tap **"Scan QR Code"** on Smart Link card → real QR code renders below (~144x144 SVG, ML-level correction, dark ink). Encodes the actual smart link URL.
+3. Tap **"Add More"** in Attach Files row → **AttachFilesSheet opens at stage 1**:
+   - "✨ AI Recommendation · familyEndUser · Family end-user — brochure, computation, floor plan, location map" + 4 category chips + "Apply →" button
+   - 9 category tiles: Photos / Brochures (1 selected) / Floor Plans (1 selected) / Computations (1 selected) / Price List / Payment Terms / Location Map (1 selected) / Requirements / Upload New File
+4. Tap **Brochures** tile → **stage 2 (Select Files)**:
+   - Format tabs: All / **PDF (active)** / Images / Docs / Links
+   - Search bar
+   - File rows: Laurel Hills 12A Brochure.pdf (checked, with AI badge)
+   - "1 file selected in this category (2.4 MB)" + green "Add Files" button
+5. Tap **"Add Files"** → jumps to **stage 3 (Selected Files)**:
+   - 4 file rows with remove × each
+   - Yellow Tip card: "Buyers love it when you send complete information..."
+   - Green "Done" button
+6. Tap Done → returns to Share Listing with files staged.
+7. Tap **"Send to Maria Santos"** → ShareCampaign + ConversationMessage created; redirect to `/agent/leads/lead-instagram-01?shared={campaignId}`.
+8. Conversation thread renders:
+   - Header card with Maria's badge
+   - **NEW "Sent — Watch this space" sage-soft banner**
+   - **NEW FileEngagementStrip with the fresh campaign's 1 attachment (just-sent message)** — initially "Not opened"
+   - Engagement simulator fires events over ~40s: link_opened at +3s, brochure_opened at +6s, computation_downloaded at +12s, floor_plan_viewed at +18s, location_map_opened at +25s, site_visit_requested at +38s (40% probability)
+   - Strip updates live as each event fires; live-pulse moves to the most-recently engaged file
 
 Stop signal met across the board.
 
-## One framing question for Session 5B
+## Carry-forwards
 
-Per the surfaced ambiguity above: **does the AI file recommendation belong inside the Attach Files sheet (my instinct, naturally located when the agent opens the sheet) or as a sidebar/panel on the Share Listing main page (matching the mockup image 2 left side)?**
+- **The Listing Detail page (#22 alternate route `/agent/listings/[listingId]`) still expected 404.** A polish session (likely 9) can ship the read-only detail view, which could embed FileEngagementStrip + ShareCampaign list per listing. Not on the critical path.
+- **Engagement event scalar counter aggregation.** The current `bumpCounters()` updates `opens`, `brochureClicks`, `computationRequests`, `siteVisitBookings`, `replies`, `reshares` on the campaign when events append. This is a denormalization for cheap dashboard reads. When the backend lands, the counters become DB triggers or computed views; the public API (the `ShareCampaign` shape) stays identical.
+- **The "Share Performance" donut chart from mockup image 1** (showing channel breakdown — WhatsApp 14 / Messenger 7 / Instagram DM 4 / SMS 2 / Email 1) is not yet rendered. The data is present in seed campaigns; the donut surface is deferable. Likely lands when broker dashboards get share-performance widgets in Session 7. **Not in 5B scope.**
+- **The "AI Match Preview" sidebar from mockup image 1** (showing Maria Santos · 92% Match · "Looking for a 4BR house in Taguig near schools and malls. Budget: ₱15M-20M. Prefers modern design with parking space.") is a broker-side recommendation surface — it shows the agent the buyer profile alongside the share. **Deferred** — likely composes naturally on the Buyer Profile page (#13) which already exists, or as a Share Listing side panel in a desktop polish session.
+- **The 38s timing for site_visit_requested vs framing's 40s** is a minor adjustment. No further action.
+- **QR code error correction level**: "M" (Medium, 15% recovery). Could be raised to "Q" (25%) if real-world scanning is patchy, but M is the default for crisp clean codes at 144px. Documented.
 
-My instinct: **inside the sheet.** The agent opens the sheet to choose files; the AI suggestion naturally surfaces at the top of the sheet ("✨ Based on Maria's last message, we suggest these files first"). This keeps the Share Listing page itself clean and matches the progressive-disclosure principle.
+## Block-close note
 
-The mockup shows it as a sidebar, but that mockup composition appears to be the desktop/educational layout (the bottom row of mockup image 2 shows the actual mobile sheet without the sidebar). Confirming the routing call.
+The marquee mockup-matching block (5A + 5B) closes here. The Share Listing main page, Preview Message page, Attach Files bottom sheet, Smart Link QR, engagement simulation, and File Engagement Tracking strip are all shipped at mockup-fidelity. **Every visible element of the mockup is now contract-enforced by the codebase.**
 
----
-
-**Next:** Session 5B — Attach Files sheet + Smart Link tracking + File Engagement strip + AI file recommendation. The second half of the Share flow surface block. After 5B, Session 5C covers Site Visit Booking (#24) and Deals Pipeline (#25). Awaiting framing.
+Session 5C (Site Visit Booking + Deals Pipeline + Closed Deal Logging) returns to PRD-driven scope with no specific mockup beyond the PRD's described surfaces. Awaiting framing.

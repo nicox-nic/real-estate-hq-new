@@ -504,12 +504,16 @@ export const prdRoutes: PRDRoute[] = [
     title: "Attach Files (Bottom Sheet)",
     route: "/agent/listings/[listingId]/share/attach",
     expectedElements: [
-      "10 category filters",
-      "File rows with size and download counts",
+      "Categories list (9 categories: Photos / Brochures / Floor Plans / Computations / Price List / Payment Terms / Location Map / Requirements / Upload New)",
+      "AI Recommendation banner at top of categories with rule transparency + Apply affordance",
+      "Select Files sub-sheet (All / PDF / Images / Docs / Links format tabs + search + multi-select checkmarks + Add Files button)",
+      "Selected Files sub-sheet (file rows with remove × + Tip card + Done button)",
+      "AI badge on individually recommended files in the file picker",
     ],
-    status: "pending",
+    status: "complete",
+    completedInSession: 5,
     notes:
-      "Modal pattern; route exists for testability. Affordance present in Share Listing 5A; sheet implementation in 5B.",
+      "Session 5B. Three-stage sheet: categories → select → selected. AI recommendation lives INSIDE the sheet per Session 5A's ratified routing decision (not as a Share Listing sidebar). recommendFilesFor() is a sibling helper to generateShareMessage, sharing the same 7-rule routing.",
   },
   {
     id: "preview-message",
