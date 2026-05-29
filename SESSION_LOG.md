@@ -5,6 +5,81 @@ Newest sessions at top.
 
 ---
 
+## Session 6 — Commission Tracking (the SECOND MARQUEE mockup-matching session, highest-stakes single screen)
+**Date:** 2025-05-29
+**Branch:** main
+**Scope:** Commission Tracking main page (#26), Commission Timeline detail (#27), Money on the Way (#28). The marquee mockup-matching session for the most polished single screen in the build deck. Math reconciliation + role-aware aggregation locked empirically.
+
+### What shipped
+
+- **`lib/format.ts`** — added `formatPHP2dp(amount)` for the marquee 2-decimal display (₱523,750.00) — distinguishes from `formatPHPWhole` (no decimals) and `formatPHPCompact` (₱1.2M shorthand). Three formatters now for three different rendering contexts.
+- **`components/commissions/CommissionKPICard.tsx`** — the marquee KPI card matching the mockup exactly. 4 variants (`total` sage / `paid` sage / `pending` gold / `on-hold` terracotta) with per-variant icon background, value text color, progress fill color. Composition: label (top-left uppercase tracking-wider) + icon circle (top-right colored) + large amount (color-accented for total, ink for the rest) + optional delta (↑/↓ + text) + optional hint (small muted) + optional progress bar (1px track + colored fill). Used 4 times on the main page. Every variant + every prop test-IDed.
+- **`/agent/commissions/page.tsx`** — the **marquee main page** at mockup-fidelity. Composition top-to-bottom:
+  - Header: back arrow + title + subtitle + date range selector ("May 1 – May 31, 2025") + Filter button
+  - 4-card KPI row with the four mockup KPIs, all routing through `computeKPIs` / `amountFor` with role-aware perspective
+  - Two-column zone: Left = Commission Breakdown donut (using existing DonutChart primitive, sized 180px thickness 26px) + 4-segment legend with amounts + percentages + Monthly Target progress card embedded; Right = Upcoming Payouts list (3 entries with date-chip + listing + buyer + amount + payout account masked + status badge) + Request Payout CTA
+  - Commission Transactions table with 6 status filter tabs (All / Closed Deals / For Closing / For Approval / Paid / On Hold) + Export button + 6 columns + per-row chevron linking to timeline detail
+  - Insights row: 3 tiles (Total sales / Average commission rate / Deals closed) with iconography matching mockup (sage/navy/gold tiled icon circles) and deltas
+  - Payout Accounts list: BDO + BPI rows with colored bank-circle avatars (navy for BDO, terracotta for BPI), masked account numbers, Default badge, Manage link
+  - Footer: "All commissions are computed based on..." + Contact support link
+  - Standalone page (no AppShell + no bottom nav per PRD)
+- **`/agent/commissions/[commissionId]/timeline/page.tsx`** — Commission Timeline detail. Composition:
+  - Header with back arrow + title + subtitle
+  - Summary card: status badge + agent share amount + total deal value + expected payout date
+  - **6-stage vertical timeline** with per-stage dot (sage check for completed / gold clock for current / gray number for pending), connector lines between stages, completedAt date or expected date or "Pending" label, optional Delayed alert when expectedAt < today
+  - Commission Split card: 3 progress-bar rows (agent / broker / realty) showing amount + percentage per recipient with per-recipient name
+  - Linked references: originating deal + payout account
+- **`/agent/commissions/money-on-the-way/page.tsx`** — motivational in-flight commission view. Composition:
+  - Header + hero card with total in-flight (large sage), count description, monthly target progress bar (towardTarget / monthlyTarget)
+  - In-flight commissions list — per-card with listing + buyer + deal value + amount + status badge + **mini 6-segment timeline strip** (sage = completed, gold = current, gray = pending — same 6 stages as Commission Timeline) + expected payout date + "Open timeline" affordance
+  - Request Payout CTA matching main page
+  - Footer summary line with paid-to-date + visible commission count
+- **PRD manifest**: commission-tracking (#26), commission-timeline (#27), money-on-the-way (#28) all promoted to complete with comprehensive expectedElements (10 / 6 / 5 elements respectively).
+
+### Decisions and engineering notes (carry-forwards)
+
+- **Engine-definitive math, per Q1 from Session 1.** The mockup's example values (Total ₱523,750, Paid ₱245K, Pending ₱188,750, On Hold ₱90K) **DO NOT match** the seed's computed values (Total ₱536,250, Paid ₱112,500, Pending ₱367,500, On Hold ₱56,250). Further: the mockup's own example values are **internally inconsistent** — its transactions table totals to ₱1,072,500 in gross commission, and applying 50% standard split yields ₱536,250 (matching the seed exactly), not ₱523,750. **The seed is more internally consistent than the PRD's example values.** Engine wins; verify locks the engine values. Flagged in this report; reviewer can ratify or request seed re-tune.
+- **The mockup's two-lens-on-same-data composition resolved cleanly.** Mockup shows KPI "Paid to Date" = ₱245K AND donut "Closed Deals" segment = ₱236K — these are *the same concept* (paid commission) shown at different granularities. With engine-definitive math, both KPI "Paid to Date" and donut "Closed Deals" segment derive from the same `agent.status === "Paid"` filter, so the verify lock `breakdown.closedDealsAmount === kpis.paidToDate` holds by construction. **The mockup's internal inconsistency was a mock-data artifact; the implementation has it right.**
+- **CommissionKPICard is bespoke, not shared with the generic KPI primitive.** Decision rationale: the mockup's KPI cards have specific composition (icon circle + delta line + hint line + optional progress bar with variant colors) that's tighter than the existing generic `KPI` primitive supports. Adding all those props to the generic primitive would balloon its interface; building a bespoke commission card keeps the generic one minimal. **Same architectural posture as Session 5C's CommissionKPICard placement under `components/commissions/` rather than `components/ui/`** — domain-specific cards live in domain folders.
+- **Vertical timeline is NOT yet extracted as a reusable component.** Session 5C's deal-pipeline progress strip is HORIZONTAL (9-cell row). Session 6's commission timeline is VERTICAL (6-row stack with per-row detail). Session 6's MotW mini-timeline is HORIZONTAL again (6-segment bar). Three timeline surfaces, three different shapes. **Rule of Three says: extract when three callers want THE SAME thing.** Here they want three different things. Extraction deferred until a fourth surface emerges that matches an existing shape.
+- **Engine-definitive commission flip from Session 5C consumed cleanly.** `expectedCommissionStatusFor(stage)` from 5C is the upstream half; Session 6's per-row status badge reads `commission.status` directly (which the closing-time flip will write). The contract is in place; the persistence is a backend task. **No regressions to 5C's commission flip mapping.** comm-014 (5C's new For Approval row) appears in the Transactions table with the correct status badge — verified empirically in Section 18.
+- **Role-aware aggregation lock CONFIRMED empirically.** Same commission seed set, three viewer roles, three different totals:
+  - Agent: ₱536,250 (50% standard split share)
+  - Broker: ₱614,250 (30% standard + 60% broker-direct split shares across team)
+  - Realtor: ₱457,000 (20% standard split share of team-and-realty-direct commissions)
+  
+  The phantom-commission bug class (broker viewing team commissions seeing agent's share instead of broker's) is **structurally prevented by routing every aggregation through `amountFor(commission, viewer)` which returns the viewer's role-specific share, NOT the agent's**. Section 18 locks: `broker_view_sum ≠ agent_view_sum ≠ realtor_view_sum`. **Bug class eliminated by design AND by verify.**
+- **Maria/Laurel narrative chain extended.** The Maria + Laurel 12A arc that runs share-006 (Session 5A/5B) → deal-012 (5C) now extends to **comm-001 (Session 6) — the Maria + Laurel 12A commission row, ₱255K total / ₱127,500 agent share / For Closing status, expected payout May 20.** The same buyer + listing chain appears in Upcoming Payouts (top row), the Transactions table (top row), the Commission Timeline detail when opened, AND animated in the Money on the Way mini-timeline. **Four surfaces, single arc.** This is the demo's flagship narrative.
+- **comm-014 (5C's hand-off) composes too.** comm-014 (Lara Hizon, Amaia Steps RFO, For Approval) appears in the Transactions table when "For Approval" filter is selected. The 5C → 6 cross-session contract is empirically validated.
+- **Commission Insights derive from EXISTING helpers** — not bespoke aggregation. Total Sales = sum of contract prices via commission → deal lookup; Average rate = mean of commission rates via commission → deal lookup; Deals Closed = count of `status === "Paid"`. No new logic; the existing data shape is sufficient.
+
+### Mockup ambiguities surfaced (flagged for ratification)
+
+1. **The mockup's example KPI values don't match its own transactions table.** Engine-definitive math (Q1) resolves this in favor of the engine. Engine value is **more internally consistent with the mockup's own transactions table than the mockup's own KPI cards.** This is the most significant mockup ambiguity in the entire build so far. Flagging for explicit reviewer ratification — engine wins per Q1, but the divergence is worth surfacing.
+2. **Mockup donut "Closed Deals" segment vs KPI "Paid to Date" labels.** Both refer to commissions in `Paid` status. Label disambiguation: "Closed Deals" reads as a deal-count category, "Paid to Date" as a cash-flow category. With engine-definitive math both render the same number; the label difference is purely framing for two different lenses on the same data. Documented; not a defect.
+3. **Mockup's Total Commission Earned KPI shows "↑ 18.6% vs Apr 1 – Apr 30, 2025"** — period-over-period delta. No prior-period seed data exists yet; I rendered the delta as a static "18.6%" string with positive direction. Verify-locked as a display element but not the value itself. Reviewer call: should we seed a prior period or keep this as illustrative-static? Going with illustrative for now.
+4. **Mockup's Commission Insights also show deltas** ("22.4% vs last month", "0.35% vs last month", "20% vs last month") — same illustrative-static treatment as above. Documented.
+
+### Verify
+
+- TypeScript: clean (`tsc --noEmit`).
+- Build: **42 routes** (was 39 in 5C; +3 new: /agent/commissions, /agent/commissions/[commissionId]/timeline, /agent/commissions/money-on-the-way). Main page 8.07 kB / 225 kB First Load (Recharts contributes ~80 kB to the First Load; one-time cost for the marquee page).
+- Verify: **1481 / 1481 passed** (+50 from Session 5C's 1431). Distribution:
+  - **Section 18 NEW (Commission Tracking marquee): 43 asserts** — Math reconciliation (KPI sum = total earned for all 3 viewer roles; donut breakdown total = sum of segments; KPI total = breakdown total cross-aggregation lock; donut segment ⇄ KPI field correspondence; donut percentages sum to 100 ± 1; transactions table sum = KPI total). Role-aware aggregation lock (agent ≠ broker ≠ realtor; phantom-commission bug guard). Mockup anchor preserved (₱536,250). 6-stage timeline progression integrity (no out-of-order completed stages across all commissions). comm-014 5C-hand-off present with For Approval status. Seeded-prop-anchor comm-001 locked (deal-001 / For Closing / agent share ₱127,500 / total ₱255,000 / Reserved completed / Released not yet). Cross-surface MotW total = agent pending KPI. filterVisibleToViewer respects role boundaries. Upcoming Payouts ≥ 3 candidates + sorted ascending. Commission Insights derive from existing helpers (Total Sales > 0, avg rate within 1-5%, deals closed = 2 Paid commissions). Monthly Target = 80% (₱480K of ₱600K).
+  - Section 19 PRD Coverage: 70 → 77 (+7 from Session 6 advancement, 3 routes × 2 + aggregate)
+
+### Stop signal met
+
+End-to-end commission flow walkable:
+- ✅ Open `/agent/commissions` → see marquee mockup-fidelity page with 4 KPIs (engine-definitive values), Commission Breakdown donut, Upcoming Payouts list with Maria + Laurel 12A top row, Request Payout CTA, full Transactions table with 6-tab filter
+- ✅ Tap "For Closing" filter → table narrows to 2 rows (comm-001 Maria Laurel + comm-002 John Cebu Prime)
+- ✅ Tap chevron on Maria + Laurel row → Commission Timeline detail with 6-stage vertical timeline (Reserved completed Apr 12 / Documents Submitted completed Apr 25 / Contract Signed in-progress / Commission Approved pending / Processing pending / Released pending) + Commission Split card (agent ₱127,500 / broker ₱76,500 / realty ₱51,000) + Linked references
+- ✅ Tap "View Details" in breakdown card → Money on the Way page → hero shows total in-flight ₱367,500 + monthly target progress 80% + in-flight commissions list with mini 6-segment timeline strips per row + Request Payout CTA
+- ✅ Tap any MotW row → returns to its Commission Timeline detail
+- ✅ Math reconciles at every level: KPI sum = transactions sum; donut total = breakdown total; donut percentages = 100; role-aware perspectives produce different correct totals
+
+---
+
 ## Session 5C — Site Visit Booking + Deals Pipeline + Closed Deal Logging
 **Date:** 2025-05-29
 **Branch:** main

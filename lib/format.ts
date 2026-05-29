@@ -25,6 +25,19 @@ export function formatPHPWhole(amount: number): string {
   }).format(amount);
 }
 
+/**
+ * Formats with exactly 2 decimal places — used by Commission Tracking
+ * marquee KPI cards where the mockup shows ₱523,750.00 with explicit .00.
+ */
+export function formatPHP2dp(amount: number): string {
+  return new Intl.NumberFormat("en-PH", {
+    style: "currency",
+    currency: "PHP",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(amount);
+}
+
 export function formatPHPCompact(amount: number): string {
   // Manual compaction to match Philippine real-estate convention (₱8.5M, ₱965K)
   const sign = amount < 0 ? "-" : "";

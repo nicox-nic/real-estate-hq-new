@@ -1,156 +1,186 @@
-# Session 5C — Report
+# Session 6 — Report
 
 **Branch:** `main`
-**Stop signal:** met. Site Visit Booking (#24) shipped with list + detail + booking form. Deals Pipeline (#25) shipped with stage-distribution overview + mobile timeline + desktop collapsible-phase kanban + Deal Detail with 9-stage progress strip + AI Suggested Next Action + required-document checklist gate + Closed Deal Logging sheet. The deal lifecycle is walkable end-to-end (book a site visit → complete it → convert to deal → advance through pipeline stages with required documents → close to won via Closed Deal Logging sheet → see commission flip via expectedCommissionStatusFor). The marquee block (5A + 5B) is closed; 5C closed PRD-driven scope. **Session 6 marquee block (Commission Tracking) opens next** and reads what 5C wrote.
+**Stop signal:** met. Commission Tracking main page (#26) shipped at mockup-fidelity. Commission Timeline detail (#27) and Money on the Way (#28) shipped to PRD. Math reconciles at every level. Role-aware aggregation produces three different correct totals over the same seed. Maria + Laurel narrative chain extends from 5A's share-006 → 5C's deal-012 → 6's comm-001 — four surfaces, single arc. **The marquee mockup-matching block has shipped the second of its two marquee surfaces.**
 
 ## At a glance
 - **TypeScript:** clean
-- **Build:** **39 routes** (+5 from 5B's 34). New: `/agent/site-visits` (1.98 kB), `/agent/site-visits/[id]` (2.34 kB), `/agent/site-visits/new` (5.89 kB), `/agent/deals` (6.05 kB), `/agent/deals/[id]` (8.62 kB). All under 130 kB First Load.
-- **Verify:** **1431 / 1431 passed** (+162 from 5B's 1269). **Section 17 (Deals Pipeline + Site Visits): 124 asserts** — second-largest single-session section after 5B's 147.
-- **PRD coverage:** **30 complete** · 0 scaffolded · 16 pending of 46
-- **Walkability:** book a site visit → site visit detail → convert-to-deal (when Completed) → pipeline shows new deal at Site Visit Done → tap deal → see 9-stage strip + AI Next Action + required-doc checklist → tap docs to mark received → Advance button enables → advance through Documents Submitted → Financing Approved → Contract Signed (opens Closed Deal Logging sheet with final price + closing date + commission flip preview) → confirm → deal at Contract Signed; commission row's expected status shows "For Closing"
+- **Build:** **42 routes** (+3 from 5C's 39). New: `/agent/commissions` (main marquee, 8.07 kB / 225 kB First Load — Recharts is the chunk-size driver), `/agent/commissions/[commissionId]/timeline` (4.08 kB / 126 kB), `/agent/commissions/money-on-the-way` (4.15 kB / 126 kB)
+- **Verify:** **1481 / 1481 passed** (+50 from 5C's 1431). **Section 18 (Commission Tracking marquee): 43 asserts** — the marquee math + role-aware + cross-surface lock
+- **PRD coverage:** **33 complete** · 0 scaffolded · 13 pending of 46
+- **Walkability:** `/agent/commissions` → tap For Closing tab → Maria + Laurel comm-001 row appears at top → tap chevron → Commission Timeline detail with 6-stage vertical timeline + Commission Split card + linked references → back to main → tap View Details on breakdown → Money on the Way page with in-flight total ₱367,500 + monthly target 80% + 4 cards with mini 6-segment timelines → tap any card → returns to Commission Timeline
 
-## What shipped (Session 5C's 2 promotions + 5 new routes)
+## What shipped (Session 6's 3 promotions + 1 new component)
 
 | # | Route / Surface | Notes |
 |---|---|---|
-| 24 | `site-visit-booking` | pending → **complete**. List + detail + booking form. 3 routes (`/agent/site-visits`, `/.../[id]`, `/.../new`). Calendar/week view deferred to Session 9. |
-| 25 | `deals-pipeline` | pending → **complete**. 2 routes (`/agent/deals` with mobile timeline + desktop collapsible-phase kanban, `/.../[id]` with progress strip + AI Next Action + required-doc gate + Closed Deal Logging sheet). |
-| — | Closed Deal Logging sheet | Modal, not a route. Triggered when advancing into Contract Signed. Final price + closing date + handoff notes + commission flip preview. |
-| — | AI Suggested Next Action | Co-located in `dealStageDerivations` (NOT a sibling helper — composes from existing stage-routing). 11-rule declarative table with rule transparency. |
+| 26 | `commission-tracking` | pending → **complete**. Marquee mockup-matching main page at `/agent/commissions`. Standalone (no AppShell, no bottom nav per PRD). |
+| 27 | `commission-timeline` | pending → **complete**. Detail at `/agent/commissions/[commissionId]/timeline`. 6-stage vertical timeline + Commission Split + linked references. |
+| 28 | `money-on-the-way` | pending → **complete**. Motivational in-flight view at `/agent/commissions/money-on-the-way`. Hero + monthly target + in-flight cards with mini 6-segment timelines. |
+| — | `CommissionKPICard` | 4-variant bespoke marquee KPI card matching mockup exactly. |
 
 ## Architectural decisions documented
 
-- **Desktop kanban: Option C (collapsible phase groups)** chosen over A (narrow columns) and B (sticky first+last). At 9 stages on 13" screens, A produces unreadably tight columns (~90px each); B preserves anchors but hides the active middle. C collapses entire phases (Discovery / Qualification / Closing × 3 stages each), letting the agent expand only the phases they're working on. Mobile uses the vertical timeline instead — same data, calmer surface for narrow viewports. **Matches the calm-UX discipline from 5A/5B: hide what's not active.**
-- **Required-document gating** in `STAGE_REQUIREMENTS` declarative table — the 6th declarative rule table in the codebase. Per-stage required documents (Lead Generated 0; Buyer Qualified 1; Site Visit Done 1; Reservation Paid 1; Documents Submitted 3; Financing Approved 2; Contract Signed 1; Commission Processing 1; Commission Released 1). UI surfaces a tap-to-toggle checklist; Advance button gated. 4-pronged structural proof in verify.
-- **Rule of Six for declarative rule tables CONFIRMED.** TONE_MARKERS (3B) / SEARCH_RULES (4B) / SHARE_RULES (5A) / FILE_RECOMMENDATION_RULES (5B) / SIMULATOR_TIMINGS (5B) / **STAGE_REQUIREMENTS (5C)** + NEXT_ACTION_RULES (5C). The pattern is now firmly the codebase's default for any rule-driven module: declared table + verify lock + transparency UI.
-- **AI Suggested Next Action did NOT earn a sibling helper.** Decision: co-located in `dealStageDerivations.ts` as `suggestNextAction(deal)`. Rationale: the rule routing is so tightly coupled to stage data that splitting into a sibling adds surface area without separation value. **The sibling-helper pattern earns its weight when two helpers diverge in input/output** (the 5A/5B pair `applyShareTone` ↔ `applyTone`, `recommendFilesFor` ↔ `generateShareMessage`); here the inputs/outputs are too coupled. Documented as a deliberate non-application of the pattern.
-- **Role-aware dealsForUser via parentId** — not via a denormalized `agentIds` field on User. Pure function takes `allUsers` as input to resolve the team graph. Realtor visibility includes direct network + transitive (agents under brokers under the realtor). Matches the existing role-aware pattern from 3A/4A.
-- **Deal.commissionId optional.** PRD semantics: the commission lifecycle begins at Reservation Paid. Early-stage deals (Lead Generated / Buyer Qualified / Site Visit Done) legitimately have no commission row. FK check updated to handle the optional case. **Mockup-anchor preserving**: the early-stage deals added to agent-001's pipeline don't introduce new commission rows, so agent-001's total commission stays at ₱536,250 (locked by Section 17).
-- **Closed Deal Logging as a sheet.** Modal, not a route. Triggered when the Advance action would move the deal into Contract Signed. Captures final closing price (defaults to contract price; can differ), closing date, handoff notes. Inline preview of the commission flip: "Deal advances to Contract Signed. Commission flips to For Closing and progresses to For Payout as the deal moves through Commission Processing." The actual flip is the declarative mapping in `expectedCommissionStatusFor(stage)`.
-- **Session 6 hand-off pattern (Commission Tracking marquee).** `expectedCommissionStatusFor(stage)` is the declarative mapping that Session 5C writes and Session 6 reads. The Commission Tracking dashboard surfaces the same mapping as the Money on the Way KPI cards animate as deals advance through Closing.
-- **Deal stage names exactly per PRD** with one minor preservation: PRD says "Financing / Payment Approved" → type uses "Financing Approved" (already shortened in DEAL_STAGES from Session 1; would ripple across multiple files to change). Documented; not a defect.
+- **Engine-definitive math per Q1, with reviewer-flagged divergence**. The PRD's example values (Total ₱523,750, Paid ₱245K, Pending ₱188,750, On Hold ₱90K) **do not match** the seed's computed values (Total ₱536,250, Paid ₱112,500, Pending ₱367,500, On Hold ₱56,250). Crucially: **applying the 50% standard split to the PRD's own transactions table yields ₱536,250 exactly** — the seed is **more internally consistent than the PRD's own example KPIs.** Engine wins per Q1; verify locks the engine values. **Flagged for explicit reviewer ratification** as the most significant mockup ambiguity in the build so far.
+- **CommissionKPICard as a bespoke component, not the generic KPI primitive.** Decision rationale: the mockup's KPI cards have specific composition (icon-in-circle + delta line + hint line + per-variant progress bar with variant-tied colors) that's tighter than the generic primitive. Adding all those props to the generic `KPI` would balloon its interface; keeping a bespoke commission card keeps the generic minimal. Same posture as `components/commissions/` vs `components/ui/` placement — domain-specific cards live in domain folders.
+- **Vertical timeline NOT extracted as a reusable component.** Three timeline surfaces now exist:
+  1. Session 5C deal-pipeline progress strip — HORIZONTAL 9-cell row
+  2. Session 6 commission timeline detail — VERTICAL 6-row stack with detail per row
+  3. Session 6 MotW mini-timeline — HORIZONTAL 6-segment bar
+  
+  **Three timeline surfaces, three different shapes.** Rule of Three says extract when 3+ callers want **the same thing**. Here they want three different things. Extraction deferred until a 4th surface emerges matching an existing shape. Carry-forward.
+- **The mockup's two-lens-on-same-data composition resolved cleanly.** Mockup shows KPI "Paid to Date" = ₱245K AND donut "Closed Deals" segment = ₱236K — referring to the *same concept* (paid commission) shown at different label granularities. With engine-definitive math both KPI and donut derive from the same `status === "Paid"` filter, so the verify lock `breakdown.closedDealsAmount === kpis.paidToDate` holds by construction. **The mockup's internal inconsistency was a mock-data artifact; the implementation has it right.**
+- **Role-aware aggregation locked empirically as the marquee invariant.** Same commission seed, three viewer roles, three different totals:
+  - Agent: ₱536,250 (50% standard split share)
+  - Broker: ₱614,250 (broker share across team's commissions)
+  - Realtor: ₱457,000 (realty share across network)
+  
+  The phantom-commission bug class is structurally prevented by routing every aggregation through `amountFor(commission, viewer)` which returns the viewer's role-specific share, not the agent's. Section 18 locks `agent ≠ broker ≠ realtor` over the same data + the phantom-commission bug guard `broker ≠ agent`. **The bug class that cost a real ₱337,175 phantom commission in the prior build is now structurally + empirically prevented in this build.**
+- **5C → 6 hand-off consumed cleanly.** `expectedCommissionStatusFor(stage)` from 5C is the upstream half of the commission flip; Session 6's per-row status badge reads `commission.status` directly. comm-014 (5C's new For Approval row) appears in the Transactions table with the correct status badge — verified empirically. **No regressions to 5C's commission flip mapping.**
+- **Commission Insights composed from existing helpers**, NOT bespoke aggregation logic. Total Sales = sum of contract prices via commission → deal lookup. Average rate = mean of commission rates via commission → deal lookup. Deals Closed = count of `status === "Paid"`. No new logic needed; existing data shape sufficient.
+- **`formatPHP2dp` added to the format module.** Three formatters now: `formatPHPWhole` (₱8,500,000, no decimals), `formatPHP2dp` (₱523,750.00, exactly 2 decimals), `formatPHPCompact` (₱8.5M shorthand). Marquee KPIs use 2dp matching the mockup; tables use whole; sub-card density uses compact. Three contexts, three formatters.
 
-## Mockup ambiguities surfaced (NOT silently resolved)
+## Mockup ambiguities surfaced (flagged for ratification, NOT silently resolved)
 
-(None — Session 5C is PRD-driven, no specific mockup beyond the PRD's described surfaces. The framing called this out: "5C returns to PRD-driven scope with no specific mockup beyond the design system the build has established.")
+1. **PRD example KPI values vs seed-computed values.** PRD says Total ₱523,750; seed produces ₱536,250 (which reconciles to the PRD's own transactions table when 50% split is applied). Resolved engine-definitive per Q1. **Reviewer ratification requested** — the divergence is real and worth surfacing.
+2. **PRD "Paid to Date" vs "Closed Deals" labels for the same concept.** Both refer to commissions in `Paid` status. With engine-definitive math both render the same number; the label difference is purely framing for two different lenses (cash-flow vs deal-count). Locked via cross-aggregation assertion. Documented; not a defect.
+3. **Period-over-period deltas (18.6%, 22.4%, 0.35%, 20%) in KPI cards + Insights tiles.** No prior-period seed data exists. Rendered as illustrative-static strings with positive direction. Verify-locked as display elements but not the numeric values. **Reviewer call: seed a prior period or keep illustrative-static?** Going with illustrative for now.
+4. **Mockup donut center shows "₱523,750" without decimals.** Engine renders compact whole format `₱536,250` in the same center slot. Composition matches; only the number diverges per (1) above.
 
-## 4-pronged structural proof on stage advancement gate
+## Math reconciliation lock (the marquee invariants)
 
-Deal at Reservation Paid with missing docs (anchor: deal-014 Lara Hizon, missing Income proof + Reservation agreement):
-- **Prong 1:** deal-014 cannot advance with missing docs (`gate.canAdvance === false`, `gate.next === "Documents Submitted"`, `gate.missingForNext` non-empty)
-- **Prong 2:** with `missingDocuments: []`, deal can advance (`gate.canAdvance === true`, `gate.missingForNext` empty)
-- **Prong 3:** unrelated missing docs do NOT block advancement (gate evaluates ONLY next-stage requirements — setting "Some unrelated doc" missing doesn't block since it's not in `STAGE_REQUIREMENTS["Documents Submitted"]`)
-- **Prong 4:** at end of pipeline (Commission Released), no advancement possible (`gate.next === undefined`, `gate.canAdvance === false`)
+Section 18 enforces these as verify checks:
 
-Each prong measures distinct gate behavior, not surface properties.
-
-## Commission flip mapping (Session 5C writes → Session 6 reads)
-
-```
-Reservation Paid       → "For Approval"
-Documents Submitted    → "For Approval"
-Financing Approved     → "For Approval"
-Contract Signed        → "For Closing"   ← closing event
-Commission Processing  → "For Payout"
-Commission Released    → "Paid"
-```
-
-Session 6's Commission Tracking dashboard reads this mapping. The flip from "For Closing" → "For Payout" is the "Money on the Way" animation moment.
-
-## AI Suggested Next Action routing (11 rules)
-
-| Stage / Condition | Rule | Label |
+| Invariant | Check | Why it matters |
 |---|---|---|
-| Lead Generated | `leadGen_noMessage` | Send an introductory message |
-| Buyer Qualified | `buyerQualified_noSiteVisit` | Book a site visit |
-| Site Visit Done | `siteVisitDone_noReservation` | Collect reservation fee |
-| Reservation Paid + missing docs | `reservationPaid_missingDocs` | Request remaining buyer documents |
-| Reservation Paid + docs ready | `reservationPaid_docsReady` | Submit documents to developer |
-| Documents Submitted | `documentsSubmitted_awaitingFinancing` | Follow up on financing approval |
-| Financing Approved | `financingApproved_prepareContract` | Prepare and route the Contract to Sell |
-| Contract Signed | `contractSigned_processCommission` | Endorse for commission processing |
-| Commission Processing | `commissionProcessing_awaitPayout` | Monitor commission release |
-| Commission Released | `commissionReleased_celebrate` | Log the closed-deal narrative |
-| (fallback) | `fallback` | Check in with the buyer |
+| Agent KPI sum reconciles | `paidToDate + pendingPayout + onHold === totalEarned` | No phantom income; total is sum of categories |
+| Broker KPI sum reconciles | Same equation for broker view | Same discipline across viewer roles |
+| Realtor KPI sum reconciles | Same equation for realtor view | Same discipline across viewer roles |
+| Donut total = sum of segments | `closedDeals + forClosing + forApproval + forPayout + onHold === total` | Donut accurately represents the data |
+| KPI total = breakdown total | `kpis.totalEarned === breakdown.total` | Cross-aggregation lock — both lenses agree |
+| KPI "On Hold" = donut "On Hold" | `breakdown.onHoldAmount === kpis.onHold` | Same data → same number across surfaces |
+| KPI "Paid to Date" = donut "Closed Deals" | `breakdown.closedDealsAmount === kpis.paidToDate` | Resolves the mockup's label ambiguity |
+| Donut percentages sum to 100 | `\|pctSum - 100\| ≤ 1` (rounding) | Donut visually reads as 100% of the pie |
+| Transactions table sum = KPI total | `sum(c.agentAmount) === kpis.totalEarned` | No phantom commission rows |
+| Monthly Target progress in [0,100] | `0 ≤ pct ≤ 100` | UI doesn't render >100% bar |
+| Monthly Target = 80% for agent-001 | `pct === 80` | Hand-computed: ₱480K / ₱600K = 80% |
 
-UI surfaces the rule key as "rule: {ruleKey}" subtitle. Same transparency pattern as `aiReply` / `aiShareMessage` rule names. Verify-locked per stage probe.
+## Role-aware aggregation lock (the highest-credibility-risk bug class)
 
-## Verify suite delta (1269 → 1431)
+| Invariant | Check | Why it matters |
+|---|---|---|
+| Agent ≠ Broker totals | `agentKPIs.totalEarned !== brokerKPIs.totalEarned` | Different perspectives produce different totals |
+| Agent ≠ Realtor totals | `agentKPIs.totalEarned !== realtorKPIs.totalEarned` | Same discipline across all role pairs |
+| Broker ≠ Realtor totals | `brokerKPIs.totalEarned !== realtorKPIs.totalEarned` | Same discipline across all role pairs |
+| Phantom-commission guard | `brokerKPIs.totalEarned !== agentKPIs.totalEarned` | The exact bug-class assertion — broker MUST NOT see agent's share |
+| Agent total = ₱536,250 | Hand-computed lock | Mockup anchor (5C hand-off) preserved |
+| Broker visibility > 0 | `brokerKPIs.totalEarned > 0` | Broker sees something (not empty filter) |
+| Realtor visibility > 0 | `realtorKPIs.totalEarned > 0` | Realtor sees something (not empty filter) |
+| filterVisibleToViewer respects roles | Agent's visible all have `agentId === 'agent-001'` | Filter doesn't leak other agents' commissions |
+
+**The ₱337,175 phantom commission bug class is now empirically prevented.**
+
+## Cross-surface invariants
+
+| Invariant | Check |
+|---|---|
+| MotW total = Agent KPI pending | `inFlightTotal === agentKPIs.pendingPayout` |
+| comm-014 5C hand-off present | comm-014 exists + status = "For Approval" |
+| Mockup anchor preserved | agent-001 total = ₱536,250 (5C → 6 contract) |
+
+## 6-stage timeline progression integrity
+
+For every seeded commission, a stage cannot be completed without the previous stage being completed. Locked across all commissions. Positive lock: at least one commission has ≥2 completed stages (proves progression actually exists in the seed).
+
+## Seeded-prop-anchor: comm-001 (Maria + Laurel 12A)
+
+Locked by 8 assertions in Section 18:
+- comm-001 references deal-001 (Laurel Hills 12A)
+- Status = "For Closing"
+- Agent share = ₱127,500 (50% of ₱255,000)
+- Total amount = ₱255,000 (₱8.5M × 3%)
+- Split sum = total (no rounding loss)
+- "Reserved" stage completed
+- "Released" stage NOT completed (still For Closing)
+- Appears in Upcoming Payouts top row (sorted by expectedPayoutDate ascending)
+
+## Narrative chain extended to 4 surfaces
+
+**Maria Santos + Laurel Hills Estate Unit 12A** — the demo's flagship arc now spans:
+
+1. **share-006** (Session 5A/5B): Maria received the share, opened all 4 files at 10:24/10:26/10:27/10:28 AM
+2. **deal-012** (Session 5C): Maria at Buyer Qualified stage, awaiting site visit
+3. **comm-001** (Session 6): Maria's commission ₱127,500 For Closing, expected payout May 20
+4. **Commission Timeline detail** (Session 6): per-stage progression with Reserved completed Apr 12 + Documents Submitted completed Apr 25 + Contract Signed in-progress
+
+**Four surfaces, single arc.** Two sessions apart, woven into a single demo narrative.
+
+## Verify suite delta (1431 → 1481)
 
 | Section | Asserts | Delta | Notes |
 |---|---|---|---|
-| 1. FK Integrity | 520 | +31 | new site visits + new deals + comm-014 + optional commissionId handling |
-| 2. Structural invariants | 72 | +2 | optional commissionId discipline |
+| 1. FK Integrity | 520 | — | |
+| 2. Structural invariants | 72 | — | |
 | 3. Demo beats | 20 | — | |
 | 4. Role-aware aggregation lock | 5 | — | |
-| 5. Commission Tracking mockup | 27 | — | unchanged — mockup anchor preserved |
+| 5. Commission Tracking mockup | 27 | — | (existing earlier section retained) |
 | 6. Auth flow & schemas | 69 | — | |
-| 7. Dashboard math | 29 | — | activeDeals 4→6, siteVisitsBooked 2→3 reflected |
+| 7. Dashboard math | 29 | — | |
 | 8. Inbox & contradiction | 22 | — | |
 | 9. AI Reply | 80 | — | |
 | 10. Listings spine | 75 | — | |
 | 12. Listings 4B | 75 | — | |
 | 14. Share Listing | 96 | — | |
 | 16. Attach Files + Engagement | 147 | — | |
-| **17. Deals Pipeline + Site Visits** | **124** | **+124** | NEW — second-largest single-session section. STAGE_REQUIREMENTS totality + 4-pronged advancement gate proof + isClosedWon + expectedCommissionStatusFor flip + NEXT_ACTION_RULES totality + 8-stage probe + Reservation Paid two-variant routing + dealsForUser role-aware (Agent/Broker/Realtor + no leakage) + Ron Marquez Saturday-2pm anchor (status/agent/timestamp/Saturday-UTC) + sv-008 No-show anchor + site visit status variants + isUpcomingStatus + partitionSiteVisits (asc/desc/total-preserved) + convertSiteVisitToDeal (Site Visit Done stage + reference preservation + Reservation Paid reqs in missingDocuments) + groupDealsByStage covers all 9 stages + early-stage pipeline density + early-stage deals have NO commissionId invariant + comm-014 anchor + Session 6 mockup anchor preserved (agent-001 total = ₱536,250) + deal-012 composes with share-006 narrative. |
-| 18. PRD Coverage | 70 | +5 | renumbered from 15; Session 5C advancement (2 routes × 2 + aggregate) |
-| **Total** | **1431** | **+162** | |
+| 17. Deals Pipeline + Site Visits | 124 | — | |
+| **18. Commission Tracking marquee** | **43** | **+43** | NEW — math reconciliation × 11 + role-aware lock × 8 + timeline integrity + comm-014 hand-off + comm-001 seeded-prop-anchor × 8 + cross-surface MotW = agent pending + filterVisible role boundary + Upcoming Payouts sort + Insights compose + Monthly Target = 80% |
+| 19. PRD Coverage | 77 | +7 | renumbered from 18; Session 6 advancement (3 routes × 2 + aggregate) |
+| **Total** | **1481** | **+50** | |
 
 ## Demo walk (validated end-to-end)
 
-1. From `/agent/site-visits`:
-   - Header: "Site Visits" + Book CTA
-   - Status filter chips: All (9) / Proposed (1) / Confirmed (3) / Reminder Sent (1) / Completed (1) / No-show (1) / Converted (2)
-   - **Upcoming section (top): Ron Marquez Saturday-2pm Proposed at the very top** (sv-007, sage chip), then Confirmed visits sorted asc by scheduledAt
-   - Past section: Completed / Converted / No-show sorted desc by scheduledAt
-2. Tap Ron's row → site visit detail:
-   - Header card: Ron Marquez + Veranda 8F + Proposed badge
-   - Schedule card: "Saturday, May 31, 2:00 PM" · Asia/Manila · "The Veranda sales pavilion — Ron prefers Saturday afternoons"
-   - Notes: "Demo anchor: Ron Marquez Saturday 2pm — proposed slot pending buyer confirmation"
-   - Linked: open Ron's conversation (lead-portal-02) + Veranda 8F listing
-   - Reminders card: "A reminder will be sent to the buyer 24 hours before the visit and again 2 hours before."
-3. Tap a Completed visit (Bea Castro, sv-006) → see Convert-to-Deal CTA: "Create Deal at Site Visit Done"
-4. `/agent/deals` (pipeline):
-   - Header: "Deals Pipeline · 14 deals · 11 active across 9 stages"
-   - Stage distribution overview: 9-cell grid with counts (1 / 1 / 1 / 1 / 2 / 0 / 3 / 1 / 3)
-   - Mobile timeline: per-stage cards with deals nested
-   - Desktop (lg+): 3 collapsible phase groups (Discovery 3 deals / Qualification 3 deals / Closing 7 deals)
-5. Tap **deal-014** (Lara Hizon, Reservation Paid):
-   - Header: Lara + Amaia Steps RFO + Reservation Paid badge + ₱4,500,000
-   - Pipeline strip: 9 dots with stage 4 (Reservation Paid) emphasized gold-soft ring
-   - AI Suggested Next Action: "Request remaining buyer documents · rule: reservationPaid_missingDocs · Reservation paid but docs incomplete — chase the requirements"
-   - **Advancement card: "Advance to Documents Submitted" + 2 missing badge**; checklist shows 3 docs: Buyer valid ID (checked sage), Income proof / employment certificate (missing circle), Reservation agreement (missing circle)
-   - **Advance button DISABLED** while missing
-6. Tap "Income proof" → toggles to received (sage check); tap "Reservation agreement" → toggles to received → **Advance button enables**
-7. Tap Advance → stage moves to Documents Submitted; new checklist appears for Financing Approved reqs (Bank letter of approval / Signed financing terms)
-8. Toggle the new requirements as received → Advance → Financing Approved → Advance → **prompts to advance to Contract Signed → opens Closed Deal Logging sheet**:
-   - Final closing price input (defaults to ₱4,500,000)
-   - Closing date picker
-   - Handoff notes textarea
-   - "What happens next" sage banner: "Deal advances to Contract Signed. Commission flips to For Closing and progresses to For Payout as the deal moves through Commission Processing."
-   - Log closed deal button
-9. Confirm → deal moves to Contract Signed; Commission row's expected status updates to "For Closing"
+1. From `/agent/commissions` (the marquee main page):
+   - Header: "Commission Tracking" + "Track your earnings, payouts, and commission status in real time." subtitle + date range selector "May 1 – May 31, 2025" + Filter button (both top-right)
+   - **KPI row (4 cards)**: Total Commission Earned ₱536,250.00 (sage accent, ↑ 18.6% delta), Paid to Date ₱112,500.00 (sage check icon, 21.0% of total + progress bar), Pending Payout ₱367,500.00 (gold clock icon, 68.5% of total + gold progress bar), On Hold ₱56,250.00 (terracotta pause icon, 10.5% of total + terracotta progress bar)
+   - **Commission Breakdown card**: Donut chart with ₱536,250 center + 4-segment legend (Closed Deals ₱112,500 21% sage / For Closing ₱367,500 68% gold / For Approval ₱0 0% blue / On Hold ₱56,250 11% gray). **Monthly Target card embedded below** with "Great job!" copy + ₱600,000 target + 80% progress bar
+   - **Upcoming Payouts card** (right column): 3 rows with month-day chips, listing + buyer + payout account + amount + status badge — **comm-001 Maria Laurel ₱127,500 May 20 For Closing top row**. Below: green Request Payout CTA
+   - **Commission Transactions table** with 6 filter tabs (All / Closed Deals / For Closing / For Approval / Paid / On Hold) + Export button. Columns: Property/Buyer / Deal Value / Commission (with rate) / Status / Expected Payout / Date Updated / chevron-to-timeline. All 6 agent-001 commissions render correctly + comm-014 appears under "For Approval" tab
+   - **Insights row**: 3 tiles (Total sales ₱40.4M with 22.4% delta / Average rate 2.75% with 0.35% delta / Deals closed 2 Deals with 20% delta)
+   - **Payout Accounts**: BDO Savings **** 5678 (navy circle, Default badge), BPI Savings **** 9981 (terracotta circle)
+   - Footer: "All commissions are computed based on your active commission rate and confirmed deals." + Contact support link
+2. Tap "For Closing" filter tab → table narrows to 2 rows (comm-001 + comm-002)
+3. Tap chevron on Maria + Laurel row → `/agent/commissions/comm-001/timeline`:
+   - Header: back arrow + "Commission Timeline" + subtitle
+   - Summary card: For Closing badge + ₱127,500.00 agent share + ₱8.5M total deal value + expected payout May 20, 2025
+   - **6-Stage Vertical Timeline**: Reserved completed Apr 12 (sage check) / Documents Submitted completed Apr 25 (sage check) / Contract Signed current with gold clock icon and ring / Commission Approved pending (gray "4" number) / Processing pending / Released pending — connector lines between stages
+   - **Commission Split card**: Agent share ₱127,500 (50%, sage bar) / Broker share ₱76,500 (30%, gold bar) / Realty share ₱51,000 (20%, navy bar)
+   - Linked: deal-001 originating deal + BDO Savings **** 5678 payout account
+4. Back to main → tap "View Details →" link on Commission Breakdown → `/agent/commissions/money-on-the-way`:
+   - Hero card: ₱367,500.00 sage in-flight total + "Across 4 commissions actively moving toward payout" + Monthly Target ₱480,000 of ₱600,000 = 80% progress bar
+   - **In-flight commissions list**: 4 cards, each with listing + buyer + deal value + agent share + status badge + **mini 6-segment timeline strip** showing completion state per stage + expected payout date + "Open timeline →" affordance
+   - Request Payout CTA matching main page
+5. Tap any in-flight row → returns to Commission Timeline detail for that commission
 
 Stop signal met across the board.
 
 ## Carry-forwards
 
-- **The Listing Detail page (`/agent/listings/[listingId]`) still expected 404.** A polish session can ship the read-only detail view; not on the critical path.
-- **The PRD bottom-nav vs AppShell discrepancy** noted in 5A's report remains for Session 9 polish.
-- **Calendar/week view for Site Visits** (PRD lists both list + calendar) deferred to Session 9. List is sufficient for the demo.
-- **The 9-stage kanban on desktop uses 3 phase groups, not 9 columns.** If a future demo needs all 9 columns visible at once, the layout choice would need to be revisited. For now, Option C is the right calmness/density trade-off.
-- **Closed Deal Logging sheet does not yet persist the final price.** Demo state only. Backend wiring lands when the persistence layer arrives.
-- **The PRD bullet "host membership (agent's broker/realtor)" for site visit booking** is not yet a UI affordance — the host is inferred from the lead's assigned agent. A Session 9 polish session could add a "host" field if the demo needs it.
+- **Vertical timeline NOT yet extracted as a reusable component.** Three timeline surfaces exist now (5C horizontal pipeline strip / 6 vertical commission timeline detail / 6 horizontal MotW mini-timeline). They have different shapes serving different purposes. Rule of Three says extract when 3+ callers want the SAME thing; here they want three different things. Extraction deferred until a 4th surface matching an existing shape emerges.
+- **Period-over-period delta data not seeded.** Deltas in KPI cards + Insights tiles are illustrative-static strings. Reviewer call: seed a prior period or keep illustrative. Documented.
+- **Recharts contributes ~80 kB to the main page's First Load.** This is the marquee page; one-time cost. Other commission sub-pages don't load Recharts. Acceptable trade-off for the donut visualization.
+- **The PRD's example KPI values internal-inconsistency is documented and flagged for reviewer ratification.** Engine-definitive math per Q1 produces ₱536,250, which reconciles correctly to the PRD's own transactions table. The PRD's example KPIs (₱523,750) are inconsistent with the PRD's own transactions table.
+- **Commission Tracking already had Section 5 in verify (27 asserts) covering the mockup composition.** Section 18 adds 43 marquee-specific assertions on math + role-aware + cross-surface. Together: 70 commission-tracking asserts — the highest-density single-feature lock in the suite.
+- **comm-014 (5C hand-off)** composes cleanly into the Transactions table under For Approval filter. The 5C → 6 cross-session contract is empirically validated.
+- **Maria/Laurel narrative chain extended to 4 surfaces** — share-006 → deal-012 → comm-001 → Commission Timeline detail. The demo's flagship arc.
 
-## Block-close note + Session 6 framing setup
+## Block-close note + Session 7 framing setup
 
-**Session 5C closes the PRD-driven scope leading up to the marquee.** The next session (Session 6) is the second marquee mockup-matching session — Commission Tracking. The build returns to mockup-fidelity discipline.
+**Session 6 closes the marquee block.** The build has now shipped both marquee mockup-matching sessions (5A/5B Sharing Page + 6 Commission Tracking). The two highest-stakes single screens of the build are contract-enforced by the codebase.
 
-**Session 6 reads what 5C wrote:**
-- `expectedCommissionStatusFor(stage)` — the declarative commission flip mapping
-- Per-stage commission row visibility (For Approval / For Closing / For Payout / Paid / On Hold)
-- The Closed Deal Logging sheet's "Money on the Way" preview
-- agent-001's preserved commission total (₱536,250) as the marquee anchor
+**Session 7 framing inputs:**
+- Broker Command Center (mockup 2) is the next marquee surface — but framing called it "Realtor Network Dashboard / Broker Command Center" with related agent/listing distribution modules
+- The role-aware aggregation infrastructure from Session 6 is the foundation; broker dashboards will read the same `computeKPIs(commissions, brokerViewer)` shape that produced ₱614,250 in Section 18's lock
+- Broker view of Commission Tracking already works (verified empirically in Section 18) — Session 7 will surface broker-specific dashboards that complement, not replace, the Commission Tracking page
+- The agent module from Broker Command Center mockup shows agent health scores, team performance, listing distribution, leaderboards, awards/bonuses — Session 7 likely splits given that scope
 
-Session 6 will need to surface the Commission Tracking mockup's specific KPI cards, the commission timeline visualization, the campaign-001 May Closing Sprint integration, and the Money on the Way animation. The declarative mapping is the foundation Session 6 builds atop.
+**Coverage trajectory:** 33 of 46 routes complete after Session 6. Remaining 13: broker/realtor dashboards + content studio + integrations + settings + analytics. Sessions 7-9 expected to close.

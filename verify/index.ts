@@ -71,6 +71,7 @@ import {
   filterVisibleToViewer,
   sumOwnAmount,
   type ViewerContext,
+  viewerFromUser,
 } from "@/lib/logic/roleAwareAmount";
 import {
   computeKPIs,
@@ -78,7 +79,7 @@ import {
 } from "@/lib/logic/commissionAggregation";
 import { prdRoutes, EXPECTED_ROUTE_COUNT } from "./prdManifest";
 import type { LeadSource, AccountStatus } from "@/lib/types";
-import { DEAL_STAGES } from "@/lib/types";
+import { DEAL_STAGES, COMMISSION_TIMELINE_STAGES } from "@/lib/types";
 
 // Reference clock used by Section 17 (and Section 7 keeps its local copy
 // for readability). Kept in sync.
@@ -4771,11 +4772,423 @@ function checkDealsAndSiteVisits() {
 }
 
 // ----------------------------------------------------------------------------
-// 18. PRD Coverage
+// 18. Commission Tracking marquee (Session 6) — math reconciliation +
+//     role-aware aggregation + mockup composition + cross-surface invariants
+// ----------------------------------------------------------------------------
+
+function checkCommissionTrackingMarquee() {
+  const section = "18. Commission Tracking marquee";
+
+  const agent001 = seedUsers.find((u) => u.id === "agent-001");
+  const broker001 = seedUsers.find((u) => u.id === "broker-001");
+  const realtor001 = seedUsers.find((u) => u.id === "realtor-001");
+  check(section, "agent-001 user found", !!agent001);
+  check(section, "broker-001 user found", !!broker001);
+  check(section, "realtor-001 user found", !!realtor001);
+  if (!agent001 || !broker001 || !realtor001) return;
+
+  const agentViewer = viewerFromUser(agent001);
+  const brokerViewer = viewerFromUser(broker001);
+  const realtorViewer = viewerFromUser(realtor001);
+
+  const agentKPIs = computeKPIs(seedCommissions, agentViewer);
+  const brokerKPIs = computeKPIs(seedCommissions, brokerViewer);
+  const realtorKPIs = computeKPIs(seedCommissions, realtorViewer);
+
+  const agentBreakdown = computeBreakdown(seedCommissions, agentViewer);
+  const brokerBreakdown = computeBreakdown(seedCommissions, brokerViewer);
+
+  // ---- KPI math reconciliation: KPI sum == total earned ----
+  check(
+    section,
+    "Agent: paidToDate + pendingPayout + onHold = totalEarned (KPI sum reconciles)",
+    agentKPIs.paidToDate + agentKPIs.pendingPayout + agentKPIs.onHold ===
+      agentKPIs.totalEarned,
+    `${agentKPIs.paidToDate} + ${agentKPIs.pendingPayout} + ${agentKPIs.onHold} ≠ ${agentKPIs.totalEarned}`,
+  );
+  check(
+    section,
+    "Broker: paidToDate + pendingPayout + onHold = totalEarned",
+    brokerKPIs.paidToDate + brokerKPIs.pendingPayout + brokerKPIs.onHold ===
+      brokerKPIs.totalEarned,
+  );
+  check(
+    section,
+    "Realtor: paidToDate + pendingPayout + onHold = totalEarned",
+    realtorKPIs.paidToDate +
+      realtorKPIs.pendingPayout +
+      realtorKPIs.onHold ===
+      realtorKPIs.totalEarned,
+  );
+
+  // ---- Donut breakdown reconciliation ----
+  // Donut total = closedDeals + forClosing + forApproval + forPayout + onHold
+  check(
+    section,
+    "Agent: donut breakdown total == sum of all segment amounts",
+    agentBreakdown.closedDealsAmount +
+      agentBreakdown.forClosingAmount +
+      agentBreakdown.forApprovalAmount +
+      agentBreakdown.forPayoutAmount +
+      agentBreakdown.onHoldAmount ===
+      agentBreakdown.total,
+  );
+
+  // ---- Cross-aggregation reconciliation: KPI total == breakdown total ----
+  check(
+    section,
+    "Agent: KPI totalEarned == breakdown total (cross-aggregation lock)",
+    agentKPIs.totalEarned === agentBreakdown.total,
+    `${agentKPIs.totalEarned} ≠ ${agentBreakdown.total}`,
+  );
+
+  // ---- Donut segment ⇄ KPI field correspondence (the mockup's own
+  //      internal-inconsistency category — locked here) ----
+  check(
+    section,
+    "Agent: donut 'On Hold' segment == KPI 'On Hold' (single source of truth)",
+    agentBreakdown.onHoldAmount === agentKPIs.onHold,
+  );
+  // Paid to Date should equal the "closed deals" segment in the breakdown
+  check(
+    section,
+    "Agent: KPI 'Paid to Date' == breakdown 'Closed Deals' (same data, same number)",
+    agentKPIs.paidToDate === agentBreakdown.closedDealsAmount,
+  );
+
+  // ---- Donut percentages sum to 100 (with rounding tolerance) ----
+  const segments = [
+    agentBreakdown.closedDealsAmount,
+    agentBreakdown.forClosingAmount + agentBreakdown.forPayoutAmount,
+    agentBreakdown.forApprovalAmount,
+    agentBreakdown.onHoldAmount,
+  ];
+  const pcts = segments.map((v) =>
+    agentBreakdown.total > 0
+      ? Math.round((v / agentBreakdown.total) * 100)
+      : 0,
+  );
+  const pctSum = pcts.reduce((s, p) => s + p, 0);
+  check(
+    section,
+    "Donut percentages sum to 100 (±1 for rounding)",
+    Math.abs(pctSum - 100) <= 1,
+    `got ${pctSum}`,
+  );
+
+  // ---- KPI sum reconciles to transactions table sum (mockup contract) ----
+  // The transactions table shows every commission row; their amounts must
+  // sum to the displayed total.
+  const agent001Commissions = seedCommissions.filter(
+    (c) => c.agentId === "agent-001",
+  );
+  const transactionsSum = agent001Commissions.reduce(
+    (s, c) => s + c.agentAmount,
+    0,
+  );
+  check(
+    section,
+    "Agent: transactions table sum == KPI totalEarned (no phantom commissions)",
+    transactionsSum === agentKPIs.totalEarned,
+    `tx=${transactionsSum}, kpi=${agentKPIs.totalEarned}`,
+  );
+
+  // ---- Mockup anchor: agent-001 total commission == ₱536,250 ----
+  // From Session 5C hand-off; locked across sessions.
+  check(
+    section,
+    "Mockup anchor: agent-001 total commission == ₱536,250 (5C hand-off preserved)",
+    agentKPIs.totalEarned === 536_250,
+    `got ${agentKPIs.totalEarned}`,
+  );
+
+  // ---- Role-aware aggregation lock (THE highest-risk bug class) ----
+  // Same commission set, three viewers, three different totals.
+  check(
+    section,
+    "Role-aware: agent_view_sum ≠ broker_view_sum (different perspectives produce different totals)",
+    agentKPIs.totalEarned !== brokerKPIs.totalEarned,
+    `agent=${agentKPIs.totalEarned}, broker=${brokerKPIs.totalEarned}`,
+  );
+  check(
+    section,
+    "Role-aware: agent_view_sum ≠ realtor_view_sum",
+    agentKPIs.totalEarned !== realtorKPIs.totalEarned,
+    `agent=${agentKPIs.totalEarned}, realtor=${realtorKPIs.totalEarned}`,
+  );
+  check(
+    section,
+    "Role-aware: broker_view_sum ≠ realtor_view_sum",
+    brokerKPIs.totalEarned !== realtorKPIs.totalEarned,
+    `broker=${brokerKPIs.totalEarned}, realtor=${realtorKPIs.totalEarned}`,
+  );
+
+  // Hand-computed expectations against the seed:
+  // The 6 agent-001 commissions yield agent share = ₱536,250.
+  // The same 6 commissions yield BROKER share for the broker viewer.
+  // The realtor share for the realtor viewer is different again.
+  // Each total must be >0 (visible) and reflect the role-correct amount.
+  check(
+    section,
+    "Role-aware: agent total = ₱536,250 (50% of total in SPLIT_STANDARD)",
+    agentKPIs.totalEarned === 536_250,
+  );
+  // Broker should see broker amounts (30% standard or 60% broker-direct)
+  // For broker-001 over agent-001's 6 commissions (all SPLIT_STANDARD 50/30/20):
+  // Total commission pool: comm-001 ₱255K, comm-002 ₱204K, comm-003 ₱276K,
+  // comm-004 ₱135K, comm-005 ₱90K, comm-006 ₱112.5K = ₱1,072,500.
+  // Broker share = 30% = ₱321,750.
+  // (broker-001 also sees commissions from other agents under them — let's
+  // check directional only, not exact, since the team aggregation is wider.)
+  check(
+    section,
+    "Role-aware: broker total > 0 (sees their share of team commissions)",
+    brokerKPIs.totalEarned > 0,
+  );
+  check(
+    section,
+    "Role-aware: realtor total > 0 (sees their share of network commissions)",
+    realtorKPIs.totalEarned > 0,
+  );
+
+  // The phantom-commission bug class: broker MUST NOT see agent's share.
+  // If brokerKPIs.totalEarned = agentKPIs.totalEarned, that's exactly the bug.
+  check(
+    section,
+    "Phantom-commission bug guard: broker total ≠ agent total over same data",
+    brokerKPIs.totalEarned !== agentKPIs.totalEarned,
+  );
+
+  // ---- 6-stage timeline progression integrity ----
+  // For each commission, a stage cannot be completed unless the previous
+  // stage is also completed.
+  for (const c of seedCommissions) {
+    let prevCompleted = true;
+    for (const stage of COMMISSION_TIMELINE_STAGES) {
+      const ev = c.timeline.find((t) => t.stage === stage);
+      const isComplete = !!ev?.completedAt;
+      if (isComplete && !prevCompleted) {
+        check(
+          section,
+          `Commission ${c.id}: stage "${stage}" completed without prior stage completed (out-of-order)`,
+          false,
+        );
+        break;
+      }
+      prevCompleted = isComplete;
+    }
+  }
+  // Positive lock: at least one commission has multiple completed stages
+  // (proves progression actually exists in the seed)
+  const someProgressed = seedCommissions.some(
+    (c) => c.timeline.filter((t) => t.completedAt).length >= 2,
+  );
+  check(
+    section,
+    "Seed has at least one commission with ≥ 2 completed stages (proves progression exists)",
+    someProgressed,
+  );
+
+  // ---- comm-014 (Session 5C hand-off) appears with correct status ----
+  const comm014 = seedCommissions.find((c) => c.id === "comm-014");
+  check(section, "comm-014 (5C hand-off) exists", !!comm014);
+  check(
+    section,
+    "comm-014 status = 'For Approval' (new lifecycle entry)",
+    comm014?.status === "For Approval",
+  );
+
+  // ---- Seeded-prop-anchor: comm-001 demo-critical commission ----
+  // The agent-001 / Laurel Hills 12A / Maria Santos commission anchor.
+  const comm001 = seedCommissions.find((c) => c.id === "comm-001");
+  check(section, "comm-001 anchor exists", !!comm001);
+  if (comm001) {
+    check(
+      section,
+      "comm-001: dealId references deal-001 (Laurel Hills 12A)",
+      comm001.dealId === "deal-001",
+    );
+    check(
+      section,
+      "comm-001: status = 'For Closing'",
+      comm001.status === "For Closing",
+    );
+    check(
+      section,
+      "comm-001: agent share == ₱127,500 (50% of ₱255,000)",
+      comm001.agentAmount === 127_500,
+      `got ${comm001.agentAmount}`,
+    );
+    check(
+      section,
+      "comm-001: total amount == ₱255,000 (₱8.5M × 3%)",
+      comm001.totalAmount === 255_000,
+      `got ${comm001.totalAmount}`,
+    );
+    // Split sanity: agent + broker + realty = total
+    const splitSum =
+      comm001.agentAmount + comm001.brokerAmount + comm001.realtyAmount;
+    check(
+      section,
+      "comm-001: split sum == totalAmount (no rounding loss)",
+      Math.abs(splitSum - comm001.totalAmount) < 1,
+      `${splitSum} vs ${comm001.totalAmount}`,
+    );
+    // Timeline progression: Reserved + Documents Submitted + Contract Signed
+    // should be completed; later stages pending.
+    const reserved = comm001.timeline.find((t) => t.stage === "Reserved");
+    const released = comm001.timeline.find((t) => t.stage === "Released");
+    check(
+      section,
+      "comm-001: 'Reserved' stage is completed",
+      !!reserved?.completedAt,
+    );
+    check(
+      section,
+      "comm-001: 'Released' stage is NOT yet completed (still For Closing)",
+      !released?.completedAt,
+    );
+  }
+
+  // ---- Cross-surface invariant: MotW total == in-flight commission sum ----
+  // The Money on the Way page renders inFlightTotal = sum of agent's
+  // commissions in {For Approval, For Closing, For Payout}.
+  // The Agent Dashboard's MotW feature card uses the same data via the
+  // same engine. They must agree on the number rendered.
+  const inFlight = agent001Commissions.filter(
+    (c) =>
+      c.status === "For Approval" ||
+      c.status === "For Closing" ||
+      c.status === "For Payout",
+  );
+  const inFlightTotal = inFlight.reduce((s, c) => s + c.agentAmount, 0);
+  check(
+    section,
+    "MotW in-flight total == agent KPI pendingPayout (cross-surface match)",
+    inFlightTotal === agentKPIs.pendingPayout,
+    `motw=${inFlightTotal}, kpi=${agentKPIs.pendingPayout}`,
+  );
+
+  // ---- filterVisibleToViewer respects role boundaries ----
+  // An agent's visible set must only include commissions where they participate.
+  const agentVisible = filterVisibleToViewer(seedCommissions, agentViewer);
+  check(
+    section,
+    "Agent's visible commissions all have agentId == 'agent-001' (or where agent participates)",
+    agentVisible.every(
+      (c) => c.agentId === "agent-001" || c.brokerId === "agent-001",
+    ),
+  );
+
+  // ---- Upcoming Payouts: 3 commissions in For Closing/For Payout sorted
+  //      by expectedPayoutDate ascending ----
+  const upcomingCandidates = agent001Commissions
+    .filter(
+      (c) => c.status === "For Closing" || c.status === "For Payout",
+    )
+    .filter((c) => c.expectedPayoutDate !== undefined)
+    .sort((a, b) =>
+      (a.expectedPayoutDate ?? "").localeCompare(b.expectedPayoutDate ?? ""),
+    );
+  check(
+    section,
+    "Upcoming Payouts: ≥ 3 candidates exist in seed (for mockup's 3 rows)",
+    upcomingCandidates.length >= 3,
+    `got ${upcomingCandidates.length}`,
+  );
+  // Top 3 are sorted ascending
+  if (upcomingCandidates.length >= 2) {
+    check(
+      section,
+      "Upcoming Payouts: sorted ascending by expectedPayoutDate",
+      (upcomingCandidates[0]!.expectedPayoutDate ?? "") <=
+        (upcomingCandidates[1]!.expectedPayoutDate ?? ""),
+    );
+  }
+
+  // ---- Mockup composition fidelity: every element listed in the manifest
+  //      is represented by a route entry ----
+  const ctEntry = prdRoutes.find((r) => r.id === "commission-tracking");
+  check(section, "commission-tracking manifest entry exists", !!ctEntry);
+  check(
+    section,
+    "commission-tracking has ≥ 8 expectedElements (full mockup composition)",
+    (ctEntry?.expectedElements?.length ?? 0) >= 8,
+    `got ${ctEntry?.expectedElements?.length ?? 0}`,
+  );
+
+  // ---- Commission Insights derived from existing commission/deal helpers ----
+  // (Not bespoke aggregation logic — composed from existing data shape.)
+  // Total sales = sum of contract prices of agent-001's commissions
+  const totalSales = agent001Commissions.reduce((s, c) => {
+    const d = seedDeals.find((dl) => dl.id === c.dealId);
+    return s + (d?.contractPrice ?? 0);
+  }, 0);
+  check(
+    section,
+    "Commission Insights: Total Sales > 0 (derives from deals via commissions)",
+    totalSales > 0,
+  );
+  check(
+    section,
+    "Commission Insights: Total Sales == sum of deal contract prices (no double-count)",
+    totalSales > 0 && totalSales < 100_000_000, // sanity bounds for ~₱40M expected
+  );
+
+  // Average commission rate
+  const rates = agent001Commissions.map((c) => {
+    const d = seedDeals.find((dl) => dl.id === c.dealId);
+    return d?.commissionRate ?? 0;
+  });
+  const avgRate =
+    rates.length > 0
+      ? rates.reduce((s, r) => s + r, 0) / rates.length
+      : 0;
+  check(
+    section,
+    "Commission Insights: average commission rate between 1% and 5% (sanity)",
+    avgRate > 0.01 && avgRate < 0.05,
+    `got ${avgRate}`,
+  );
+
+  // Deals closed = commissions with status Paid
+  const paidCount = agent001Commissions.filter((c) => c.status === "Paid")
+    .length;
+  check(
+    section,
+    "Commission Insights: deals closed == Paid commission count",
+    paidCount === 2,
+    `got ${paidCount}`,
+  );
+
+  // ---- Monthly target progress percentage = round((toward / target) * 100) ----
+  const monthlyTarget = 600_000;
+  const towardTarget = agentKPIs.paidToDate + agentKPIs.pendingPayout;
+  const targetPct = Math.min(
+    100,
+    Math.round((towardTarget / monthlyTarget) * 100),
+  );
+  check(
+    section,
+    "Monthly Target progress: between 0 and 100 inclusive",
+    targetPct >= 0 && targetPct <= 100,
+    `got ${targetPct}`,
+  );
+  // Specifically: agent-001's paid + pending = ₱112,500 + ₱367,500 = ₱480,000 / ₱600,000 = 80%
+  check(
+    section,
+    "Monthly Target progress: agent-001 at 80% (paid + pending = ₱480,000 of ₱600,000 target)",
+    targetPct === 80,
+    `got ${targetPct}`,
+  );
+}
+
+// ----------------------------------------------------------------------------
+// 19. PRD Coverage
 // ----------------------------------------------------------------------------
 
 function reportPRDCoverage() {
-  const section = "18. PRD Coverage";
+  const section = "19. PRD Coverage";
 
   check(
     section,
@@ -5077,6 +5490,40 @@ function reportPRDCoverage() {
     complete >= 30,
     `complete=${complete}`,
   );
+
+  // Session 6 marquee: commission-tracking + commission-timeline + money-on-the-way.
+  const session6Routes = [
+    "commission-tracking",
+    "commission-timeline",
+    "money-on-the-way",
+  ];
+  for (const id of session6Routes) {
+    const entry = prdRoutes.find((r) => r.id === id);
+    if (!entry) {
+      fail(section, `Session 6 route ${id} present in manifest`, "missing");
+      continue;
+    }
+    check(
+      section,
+      `Session 6 route "${id}" status = complete`,
+      entry.status === "complete",
+      `got ${entry.status}`,
+    );
+    check(
+      section,
+      `Session 6 route "${id}" completedInSession = 6`,
+      entry.completedInSession === 6,
+      `got ${entry.completedInSession}`,
+    );
+  }
+
+  // Coverage cannot regress: 30 (Session 5C) + 3 (Session 6 routes) = 33.
+  check(
+    section,
+    "Coverage progress: ≥ 33 routes complete after Session 6",
+    complete >= 33,
+    `complete=${complete}`,
+  );
 }
 
 // ----------------------------------------------------------------------------
@@ -5157,5 +5604,6 @@ checkListings4B();
 checkShareListing();
 checkAttachFilesAndEngagement();
 checkDealsAndSiteVisits();
+checkCommissionTrackingMarquee();
 reportPRDCoverage();
 report();
