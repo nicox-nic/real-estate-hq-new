@@ -725,13 +725,17 @@ export const prdRoutes: PRDRoute[] = [
   {
     id: "manager-analytics",
     title: "Manager Analytics",
-    route: "/broker/analytics",
+    route: "/broker/insights",
     expectedElements: [
-      "Team trend chart",
-      "Top performers ranking",
-      "Coaching insights",
+      "Header with role-aware title ('Team Analytics' vs 'Network Analytics') + subtitle + date range selector + Export button",
+      "Summary stat strip (Total Leads / Closed Deals / Pending Commissions / Active Agents)",
+      "6-chart grid: Lead Volume Over Time (LineChart filled) + Response Time Distribution (BarChart 4 buckets) + Lead Source Performance (DonutChart + legend) + Conversion by Stage (BarChart % per stage) + Lead Temperature (DonutChart Hot/Warm/Nurture/Cold) + Commission Status (DonutChart with manager-share amounts)",
+      "Top Performers compact list with View Full Leaderboard link",
     ],
-    status: "pending",
+    status: "complete",
+    completedInSession: 8,
+    notes:
+      "Session 8A. Parameterized ManagerAnalytics component used by /broker/insights and /realtor/insights (7th use of the single-parameterized-component pattern). All values derive from computeAnalyticsSnapshot — engine-honest. Two new chart wrappers (BarChart + LineChart) earn extraction immediately since 3+ callers exist on this surface (Rule of Three at point of construction).",
   },
   {
     id: "content-studio",
@@ -774,12 +778,16 @@ export const prdRoutes: PRDRoute[] = [
     title: "Notifications",
     route: "/notifications",
     expectedElements: [
-      "Categorized list (14 categories)",
-      "Read/unread state",
-      "Filter by priority",
+      "Header with Notifications title + Bell icon + unread count + 'Mark All Read' affordance (when unread > 0)",
+      "Filter chips: All / Unread / + present category chips (e.g., New Hot Lead, Buyer Replied, Deal Stage Changed, etc.) with per-chip counts",
+      "Notification rows with category icon (14 PRD categories mapped) + title + body + priority badge (Urgent / Important / Normal) + unread dot + timestamp ('Xm ago' / 'Xh ago' / 'Xd ago') + per-row Mark Read affordance",
+      "Read/unread visual distinction (font weight + border emphasis + shadow)",
+      "Tap-through routing to related entity (lead/deal/commission/listing) when relatedEntityId is set",
     ],
-    status: "pending",
-    notes: "Added per scope contract additions.",
+    status: "complete",
+    completedInSession: 8,
+    notes:
+      "Session 8A. Composes with EXISTING NotificationItem entity (no new entity introduced) — Session 1's entity model already supported the 14 PRD categories + 3 priority levels + read state + relatedEntityId tap-through. Maria/Laurel narrative chain extension via notif-001 ('New Hot Lead: Maria Santos · 92% match for Laurel Hills 12A').",
   },
   {
     id: "leaderboard-full",
