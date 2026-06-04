@@ -161,12 +161,14 @@ export function AppShell({ role, userName, userSubtitle, children }: AppShellPro
                 </span>
               ) : null}
             </Link>
-            <button
+            <Link
+              href="/"
               className="text-ink-subtle hover:text-ink"
-              aria-label="Sign out"
+              aria-label="Switch demo user"
+              title="Switch demo user"
             >
               <LogOut className="h-4 w-4" />
-            </button>
+            </Link>
           </div>
         </div>
       </aside>

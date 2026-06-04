@@ -3,50 +3,42 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Fingerprint } from "lucide-react";
+import { Fingerprint, LogIn } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Input, FieldGroup } from "@/components/ui/Form";
-import { seedUsers } from "@/lib/data";
-import { landingDestination } from "@/lib/logic/accountAccess";
+import { cn } from "@/lib/cn";
+import {
+  DEMO_PASSWORD,
+  QUICK_DEMO_ACCOUNTS,
+  signInPathForEmail,
+} from "@/lib/demoAuth";
 
 /**
  * Splash / Login (#1).
  *
- * Sign-in form with email + password (mocked — no real auth), Face ID
- * affordance (visual-only stub), Forgot Password link, footer Create Account.
- *
- * Demo behavior: typing an email that matches a seed user routes to that
- * user's role dashboard (if Verified) or the pending verification screen
- * (otherwise). Password is not validated. If the email doesn't match a
- * known seed user, the form falls through to the Agent splash by default
- * so the prototype is always walkable.
+ * Mock auth: email routes to the matching seed user's dashboard (or pending
+ * screen). Password is never validated — use `demo` or anything.
  */
 export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = React.useState("");
-  const [password, setPassword] = React.useState("");
+  const [password, setPassword] = React.useState(DEMO_PASSWORD);
   const [error, setError] = React.useState<string | null>(null);
+
+  const goTo = (targetEmail: string) => {
+    setError(null);
+    setEmail(targetEmail);
+    router.push(signInPathForEmail(targetEmail));
+  };
 
   const handleSignIn = (e: React.FormEvent) => {
     e.preventDefault();
-    setError(null);
     const trimmed = email.trim().toLowerCase();
     if (!trimmed) {
-      setError("Enter the email you used to register.");
+      setError("Enter an email or pick a demo account below.");
       return;
     }
-    const match = seedUsers.find((u) => u.email.toLowerCase() === trimmed);
-    if (!match) {
-      // Demo fallback — route to the demo agent so the prototype is walkable.
-      router.push("/agent");
-      return;
-    }
-    const dest = landingDestination(match.role, match.status);
-    if (dest.kind === "dashboard") {
-      router.push(dest.path);
-    } else {
-      router.push(`/auth/pending?status=${encodeURIComponent(match.status)}`);
-    }
+    goTo(trimmed);
   };
 
   return (
@@ -63,15 +55,53 @@ export default function LoginPage() {
             </div>
           </div>
 
-          {/* Headline */}
           <h1 className="font-display text-2xl font-semibold text-ink mb-1 text-center text-balance">
             Close more deals. Earn more.
           </h1>
-          <p className="text-sm text-ink-muted mb-8 text-center">
+          <p className="text-sm text-ink-muted mb-6 text-center">
             Sign in to your sales command center.
           </p>
 
-          {/* Form */}
+          {/* One-tap demo accounts */}
+          <div className="mb-6 space-y-2">
+            <div className="text-xs font-medium uppercase tracking-wider text-ink-subtle px-1">
+              Quick sign-in (no password check)
+            </div>
+            <div className="grid gap-2">
+              {QUICK_DEMO_ACCOUNTS.map((account) => (
+                <button
+                  key={account.id}
+                  type="button"
+                  onClick={() => goTo(account.email)}
+                  className={cn(
+                    "w-full rounded-2xl border border-line bg-canvas-raised px-4 py-3 text-left",
+                    "hover:border-gold-deep/40 hover:bg-canvas-sunken transition-colors",
+                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold-deep/50",
+                  )}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-sm font-medium text-ink">
+                      {account.fullName}
+                    </span>
+                    <span className="text-[10px] font-medium uppercase tracking-wide text-gold-deep">
+                      {account.role}
+                    </span>
+                  </div>
+                  <div className="mt-0.5 text-xs text-ink-muted">{account.blurb}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="relative mb-6">
+            <div className="absolute inset-0 flex items-center" aria-hidden>
+              <div className="w-full border-t border-line" />
+            </div>
+            <div className="relative flex justify-center text-xs">
+              <span className="bg-canvas px-2 text-ink-subtle">or use email</span>
+            </div>
+          </div>
+
           <form onSubmit={handleSignIn} className="space-y-4">
             <FieldGroup label="Email" htmlFor="email">
               <Input
@@ -81,19 +111,21 @@ export default function LoginPage() {
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="you@example.com"
                 autoComplete="email"
-                required
               />
             </FieldGroup>
 
-            <FieldGroup label="Password" htmlFor="password">
+            <FieldGroup
+              label="Password"
+              htmlFor="password"
+              hint={`Prototype only — not checked. Try "${DEMO_PASSWORD}" or leave as-is.`}
+            >
               <Input
                 id="password"
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
+                placeholder={DEMO_PASSWORD}
                 autoComplete="current-password"
-                required
               />
             </FieldGroup>
 
@@ -111,24 +143,23 @@ export default function LoginPage() {
             ) : null}
 
             <Button type="submit" variant="primary" size="lg" className="w-full">
+              <LogIn className="h-4 w-4" />
               Sign in
             </Button>
 
-            {/* Face ID stub — visual only, no real biometric */}
             <Button
               type="button"
               variant="secondary"
               size="lg"
               className="w-full"
               onClick={() => router.push("/agent")}
-              aria-label="Sign in with Face ID"
+              aria-label="Skip to agent dashboard"
             >
               <Fingerprint className="h-4 w-4" />
-              <span>Sign in with Face ID</span>
+              <span>Skip to Agent dashboard</span>
             </Button>
           </form>
 
-          {/* Footer */}
           <div className="mt-8 text-center text-sm text-ink-muted">
             New to Real Estate HQ?{" "}
             <Link
@@ -138,35 +169,12 @@ export default function LoginPage() {
               Create account
             </Link>
           </div>
-
-          {/* Demo hint */}
-          <div className="mt-10 rounded-2xl border border-line bg-canvas-raised p-4 text-xs text-ink-muted">
-            <div className="font-medium text-ink mb-1">Prototype shortcuts</div>
-            <div className="space-y-0.5">
-              <div>
-                <span className="text-ink">alyssa.garcia@realestate-hq.ph</span>{" "}
-                — Agent (verified)
-              </div>
-              <div>
-                <span className="text-ink">maria.santos@realestate-hq.ph</span>{" "}
-                — Broker (verified)
-              </div>
-              <div>
-                <span className="text-ink">alex.reyes@realestate-hq.ph</span>{" "}
-                — Realtor (verified)
-              </div>
-              <div>
-                <span className="text-ink">miguel.reyes@realestate-hq.ph</span>{" "}
-                — Pending verification
-              </div>
-            </div>
-          </div>
         </div>
       </div>
 
       <footer className="text-center text-xs text-ink-subtle py-6">
         © {new Date().getFullYear()} Real Estate HQ ·{" "}
-        <span className="text-ink-muted">Prototype</span>
+        <span className="text-ink-muted">Prototype · password: {DEMO_PASSWORD}</span>
       </footer>
     </main>
   );

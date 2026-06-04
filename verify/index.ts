@@ -97,6 +97,11 @@ import {
   canAccessRoleFeatures,
 } from "@/lib/logic/accountAccess";
 import {
+  DEMO_PASSWORD,
+  QUICK_DEMO_ACCOUNTS,
+  resolveSignIn,
+} from "@/lib/demoAuth";
+import {
   computeAgentDashboardKPIs,
   computeMoneyOnTheWay,
   selectActiveDeals,
@@ -1301,6 +1306,33 @@ function checkAuthAndSchemas() {
     "≥1 seed user with Pending Verification status",
     !!pendingUser,
     pendingUser ? `e.g. ${pendingUser.email}` : "none found",
+  );
+
+  // -- Demo sign-in shortcuts (prototype; password not validated) --
+  check(section, "DEMO_PASSWORD is non-empty", DEMO_PASSWORD.length > 0);
+  check(
+    section,
+    "QUICK_DEMO_ACCOUNTS has Agent, Broker, Realtor",
+    ["Agent", "Broker", "Realtor"].every((role) =>
+      QUICK_DEMO_ACCOUNTS.some((a) => a.role === role),
+    ),
+  );
+  const alyssaSignIn = resolveSignIn("alyssa.garcia@realestate-hq.ph");
+  check(
+    section,
+    "Alyssa email resolves to /agent",
+    alyssaSignIn.kind === "dashboard" && alyssaSignIn.path === "/agent",
+  );
+  const miguelSignIn = resolveSignIn("miguel.reyes@realestate-hq.ph");
+  check(
+    section,
+    "Miguel email resolves to pending screen",
+    miguelSignIn.kind === "pending",
+  );
+  check(
+    section,
+    "Unknown email falls back to /agent",
+    resolveSignIn("unknown@example.com").path === "/agent",
   );
 
   // -- Role-route mapping for the signup picker --
