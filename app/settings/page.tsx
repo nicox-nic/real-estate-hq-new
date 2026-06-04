@@ -23,13 +23,15 @@ import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { cn } from "@/lib/cn";
+import { seedIntegrations, seedPayoutAccounts, seedUsers } from "@/lib/data";
 import {
-  seedUsers,
-  seedIntegrations,
-  seedPayoutAccounts,
-  DEMO_AGENT_ID,
-} from "@/lib/data";
-import type { NotificationCategory, UserRole } from "@/lib/types";
+  demoUserForRole,
+  demoUserIdForRole,
+  integrationsPathForRole,
+  roleBasePath,
+} from "@/lib/rolePaths";
+import { useCurrentRole } from "@/lib/useCurrentRole";
+import type { NotificationCategory } from "@/lib/types";
 
 /**
  * Settings (#36) at /settings.
@@ -46,7 +48,9 @@ import type { NotificationCategory, UserRole } from "@/lib/types";
  * NotificationCategory / Integration / PayoutAccount entities.
  */
 export default function SettingsPage() {
-  const user = seedUsers.find((u) => u.id === DEMO_AGENT_ID);
+  const role = useCurrentRole();
+  const user = demoUserForRole(role);
+  const demoUserId = demoUserIdForRole(role);
 
   // Notification prefs — initialize all 14 categories to enabled
   const allCategories: NotificationCategory[] = [
@@ -81,11 +85,8 @@ export default function SettingsPage() {
   const [emailEnabled, setEmailEnabled] = React.useState(true);
   const [smsEnabled, setSmsEnabled] = React.useState(false);
 
-  const role: UserRole = user?.role ?? "Agent";
   const connectedCount = seedIntegrations.filter((i) => i.isConnected).length;
-  const myAccounts = seedPayoutAccounts.filter(
-    (pa) => pa.userId === DEMO_AGENT_ID,
-  );
+  const myAccounts = seedPayoutAccounts.filter((pa) => pa.userId === demoUserId);
 
   return (
     <AppShell
@@ -95,7 +96,7 @@ export default function SettingsPage() {
     >
       <div className="space-y-4 pb-4">
         <Link
-          href={role === "Broker" ? "/broker" : role === "Realtor" ? "/realtor" : "/agent"}
+          href={roleBasePath(role)}
           className="inline-flex items-center gap-1.5 text-sm text-ink-muted hover:text-ink"
         >
           <ArrowLeft className="h-4 w-4" />
@@ -277,7 +278,7 @@ export default function SettingsPage() {
         {/* Integrations link */}
         <Card data-testid="settings-integrations-link" className="!p-0 overflow-hidden">
           <Link
-            href="/integrations"
+            href={integrationsPathForRole(role)}
             className="flex items-center gap-3 p-4 hover:bg-canvas-sunken/30 transition-colors"
           >
             <div className="h-9 w-9 rounded-xl bg-sage-soft/60 text-sage-deep flex items-center justify-center shrink-0">

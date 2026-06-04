@@ -31,11 +31,9 @@ import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { cn } from "@/lib/cn";
-import {
-  seedIntegrations,
-  seedUsers,
-  DEMO_AGENT_ID,
-} from "@/lib/data";
+import { seedIntegrations } from "@/lib/data";
+import { demoUserForRole, settingsPathForRole } from "@/lib/rolePaths";
+import { useCurrentRole } from "@/lib/useCurrentRole";
 import type { Integration, IntegrationProvider } from "@/lib/types";
 
 /**
@@ -58,7 +56,8 @@ import type { Integration, IntegrationProvider } from "@/lib/types";
  * One seeded with error state: SMS Provider — "Provider account inactive"
  */
 export default function IntegrationsPage() {
-  const user = seedUsers.find((u) => u.id === DEMO_AGENT_ID);
+  const role = useCurrentRole();
+  const user = demoUserForRole(role);
 
   // Local state allows toggling connections during demo
   const [integrations, setIntegrations] = React.useState<Integration[]>(
@@ -119,13 +118,13 @@ export default function IntegrationsPage() {
 
   return (
     <AppShell
-      role="Agent"
-      userName={user?.fullName ?? "Demo Agent"}
-      userSubtitle={user?.companyName ?? "Agent"}
+      role={role}
+      userName={user?.fullName ?? "Demo User"}
+      userSubtitle={user?.companyName ?? role}
     >
       <div className="space-y-4 pb-4">
         <Link
-          href="/settings"
+          href={settingsPathForRole(role)}
           className="inline-flex items-center gap-1.5 text-sm text-ink-muted hover:text-ink"
         >
           <ArrowLeft className="h-4 w-4" />
