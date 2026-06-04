@@ -207,10 +207,6 @@ export default function UnitInventoryViewPage() {
           )}
         </Card>
 
-        <p className="text-[11px] text-ink-subtle italic">
-          Tapping a unit opens the listing detail page (Session 5 work — link
-          target may 404 until then).
-        </p>
       </div>
     </AppShell>
   );
@@ -225,15 +221,9 @@ function UnitCard({
   role: ReturnType<typeof useCurrentRole>;
   agentsUnderCount: number;
 }) {
-  // Find the Listing whose unitId points at this Unit. The Share Listing
-  // page takes a listingId, not a unitId, so we resolve the back-reference.
-  const listing = React.useMemo(
-    () => seedListings.find((l) => l.unitId === unit.id),
-    [unit.id],
-  );
   const shareHref =
-    role === "Agent" && listing
-      ? `/${role.toLowerCase()}/listings/${listing.id}/share`
+    role === "Agent"
+      ? `/${role.toLowerCase()}/listings/${unit.id}/share`
       : undefined;
 
   return (

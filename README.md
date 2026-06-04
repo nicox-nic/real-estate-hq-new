@@ -124,13 +124,19 @@ npm install
 ```
 
 ```sh
-npm run dev        # http://localhost:3000
+npm run dev        # http://localhost:3000 (also on your LAN — see below)
 npm run build      # production bundle
-npm start          # serve production bundle
+npm start          # serve production bundle (LAN-accessible)
 npm run typecheck  # tsc --noEmit
 npm run lint       # next lint
 npm run verify     # full verify suite — 1948 assertions
 ```
+
+**Access from phone or another PC on the same Wi‑Fi:** after `npm run dev`,
+open `http://<your-local-ip>:3000` (for example `http://192.168.1.42:3000`).
+On Windows, run `ipconfig` and use the **IPv4 Address** of your active adapter.
+The dev server binds to `0.0.0.0` so it accepts connections from the local network.
+If it does not connect, allow Node through the Windows Firewall when prompted.
 
 Routes are role-prefixed: `/agent/*`, `/broker/*`, `/realtor/*`. The
 auth and signup flow lives at `/auth/*`. Notifications and Settings are

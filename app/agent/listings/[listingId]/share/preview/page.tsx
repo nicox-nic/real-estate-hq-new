@@ -17,11 +17,11 @@ import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/cn";
 import {
   DEMO_AGENT_ID,
-  seedListings,
   seedLeads,
   seedPropertyFiles,
   seedUsers,
 } from "@/lib/data";
+import { resolveInventoryByRouteId } from "@/lib/logic/inventoryResolve";
 import { useCurrentRole } from "@/lib/useCurrentRole";
 import { shareListing } from "@/lib/shareStore";
 import { formatPHPWhole } from "@/lib/format";
@@ -48,8 +48,9 @@ export default function PreviewMessagePage() {
   const role = useCurrentRole();
   const roleSlug = role.toLowerCase();
 
-  const listing = seedListings.find((l) => l.id === params.listingId);
-  if (!listing) notFound();
+  const resolved = resolveInventoryByRouteId(params.listingId);
+  if (!resolved) notFound();
+  const { routeId, listing } = resolved;
 
   const leadId = searchParams.get("lead") ?? "";
   const message = searchParams.get("message") ?? "";
@@ -103,7 +104,7 @@ export default function PreviewMessagePage() {
         {/* Header */}
         <div className="flex items-center justify-between">
           <Link
-            href={`/${roleSlug}/listings/${listing.id}/share?lead=${leadId}`}
+            href={`/${roleSlug}/listings/${routeId}/share?lead=${leadId}`}
             className="inline-flex items-center gap-1.5 text-sm text-ink-muted hover:text-ink"
           >
             <ArrowLeft className="h-4 w-4" />
@@ -259,7 +260,7 @@ export default function PreviewMessagePage() {
             Send Now
           </Button>
           <Link
-            href={`/${roleSlug}/listings/${listing.id}/share?lead=${leadId}`}
+            href={`/${roleSlug}/listings/${routeId}/share?lead=${leadId}`}
             data-testid="preview-edit-message"
             className="block"
           >

@@ -14,7 +14,9 @@ export function entityHrefForRole(
   const base = roleBasePath(role);
 
   if (id.startsWith("lead-")) return `${base}/leads/${id}`;
-  if (id.startsWith("listing-")) return `${base}/listings/${id}`;
+  if (id.startsWith("listing-") || id.startsWith("unit-")) {
+    return `${base}/listings/${id}`;
+  }
   if (id.startsWith("sv-") || id.startsWith("visit-")) {
     return `${base}/site-visits/${id}`;
   }

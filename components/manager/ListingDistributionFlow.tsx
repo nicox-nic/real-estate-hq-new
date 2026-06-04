@@ -33,6 +33,7 @@ import {
   AGENT_RECOMMENDATION_RULES,
   type AgentScore,
 } from "@/lib/logic/agentRecommendation";
+import { resolveInventoryByRouteId } from "@/lib/logic/inventoryResolve";
 import { formatPHPCompact, formatPHPWhole } from "@/lib/format";
 
 type DistributionMode = "all" | "manual" | "ai";
@@ -72,10 +73,11 @@ export function ListingDistributionFlow({
 }: ListingDistributionFlowProps) {
   const params = useParams<{ listingId: string }>();
   const router = useRouter();
-  const listing = seedListings.find((l) => l.id === params.listingId);
+  const resolved = resolveInventoryByRouteId(params.listingId);
   const managerId = role === "Broker" ? DEMO_BROKER_ID : DEMO_REALTOR_ID;
   const manager = seedUsers.find((u) => u.id === managerId);
-  if (!listing || !manager) notFound();
+  if (!resolved || !manager) notFound();
+  const { routeId, listing } = resolved;
 
   const roleSlug = role.toLowerCase() as "broker" | "realtor";
 

@@ -129,27 +129,21 @@ export function AppShell({ role, userName, userSubtitle, children }: AppShellPro
 
         <div className="border-t border-line p-4">
           <div className="flex items-center gap-3">
-            <div className="h-9 w-9 rounded-full bg-gold-soft flex items-center justify-center text-gold-deep font-semibold text-sm">
-              {userName
-                .split(" ")
-                .map((n) => n[0])
-                .slice(0, 2)
-                .join("")}
-            </div>
-            <div className="min-w-0">
-              <div className="text-sm font-medium text-ink truncate">
-                {userName}
-              </div>
-              <div className="text-xs text-ink-muted truncate">
-                {userSubtitle || role}
-              </div>
-            </div>
+            <UserAccountMenu
+              userName={userName}
+              userSubtitle={userSubtitle || role}
+              role={role}
+              unreadCount={unreadCount}
+              size="default"
+              menuPlacement="above"
+              className="min-w-0 flex-1"
+            />
             <Link
               href="/notifications"
               data-testid="appshell-bell"
               data-unread-count={unreadCount}
               aria-label={`Notifications${unreadCount > 0 ? ` (${unreadCount} unread)` : ""}`}
-              className="ml-auto relative text-ink-subtle hover:text-ink"
+              className="relative shrink-0 text-ink-subtle hover:text-ink"
             >
               <Bell className="h-4 w-4" />
               {unreadCount > 0 ? (
@@ -161,14 +155,6 @@ export function AppShell({ role, userName, userSubtitle, children }: AppShellPro
                 </span>
               ) : null}
             </Link>
-            <Link
-              href="/"
-              className="text-ink-subtle hover:text-ink"
-              aria-label="Switch demo user"
-              title="Switch demo user"
-            >
-              <LogOut className="h-4 w-4" />
-            </Link>
           </div>
         </div>
       </aside>
@@ -179,9 +165,14 @@ export function AppShell({ role, userName, userSubtitle, children }: AppShellPro
        *  5-icon bottom nav. */}
       <header className="lg:hidden sticky top-0 z-40 bg-canvas-raised/95 backdrop-blur-sm border-b border-line">
         <div className="flex items-center justify-between gap-2 px-4 h-12">
-          <span className="text-sm font-medium text-ink truncate">
-            {userName.split(/\s+/)[0]}
-          </span>
+          <UserAccountMenu
+            userName={userName}
+            userSubtitle={userSubtitle || role}
+            role={role}
+            unreadCount={unreadCount}
+            size="compact"
+            menuPlacement="below"
+          />
           <Link
             href="/notifications"
             data-testid="mobile-bell"
@@ -234,6 +225,164 @@ export function AppShell({ role, userName, userSubtitle, children }: AppShellPro
           })}
         </div>
       </nav>
+    </div>
+  );
+}
+
+function userInitials(name: string): string {
+  return name
+    .split(/\s+/)
+    .map((part) => part[0])
+    .filter(Boolean)
+    .slice(0, 2)
+    .join("");
+}
+
+const ACCOUNT_MENU_LABELS = new Set([
+  "Settings",
+  "Notifications",
+  "Integrations",
+  "AI Studio",
+]);
+
+function accountMenuItems(role: UserRole): NavItem[] {
+  return NAV_BY_ROLE[role].secondary.filter((item) =>
+    ACCOUNT_MENU_LABELS.has(item.label),
+  );
+}
+
+function UserAccountMenu({
+  userName,
+  userSubtitle,
+  role,
+  unreadCount,
+  size,
+  menuPlacement,
+  className,
+}: {
+  userName: string;
+  userSubtitle: string;
+  role: UserRole;
+  unreadCount: number;
+  size: "compact" | "default";
+  menuPlacement: "below" | "above";
+  className?: string;
+}) {
+  const compact = size === "compact";
+  const [open, setOpen] = React.useState(false);
+  const rootRef = React.useRef<HTMLDivElement>(null);
+  const menuItems = accountMenuItems(role);
+
+  React.useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (event: MouseEvent) => {
+      if (rootRef.current?.contains(event.target as Node)) return;
+      setOpen(false);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open]);
+
+  return (
+    <div
+      ref={rootRef}
+      className={cn(
+        "relative flex items-center gap-2 min-w-0",
+        compact && "flex-1",
+        className,
+      )}
+      data-testid={compact ? "mobile-user-profile" : "sidebar-user-profile"}
+    >
+      <button
+        type="button"
+        data-testid={compact ? "mobile-user-avatar-menu" : "desktop-user-avatar-menu"}
+        aria-expanded={open}
+        aria-haspopup="menu"
+        aria-label="Account menu"
+        onClick={() => setOpen((prev) => !prev)}
+        className={cn(
+          "rounded-full bg-gold-soft flex items-center justify-center text-gold-deep font-semibold shrink-0",
+          "hover:ring-2 hover:ring-gold-deep/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold-deep/50",
+          open && "ring-2 ring-gold-deep/40",
+          compact ? "h-8 w-8 text-xs" : "h-9 w-9 text-sm",
+        )}
+      >
+        {userInitials(userName)}
+      </button>
+      <div className="min-w-0 leading-tight pointer-events-none">
+        <div className="text-sm font-medium text-ink truncate">{userName}</div>
+        <div
+          className={cn(
+            "text-ink-muted truncate",
+            compact ? "text-[11px]" : "text-xs",
+          )}
+        >
+          {userSubtitle}
+        </div>
+      </div>
+
+      {open ? (
+        <div
+          role="menu"
+          data-testid={compact ? "mobile-user-menu" : "desktop-user-menu"}
+          className={cn(
+            "absolute left-0 z-50 w-56 rounded-2xl border border-line bg-canvas-raised shadow-lift py-1.5",
+            menuPlacement === "below"
+              ? "top-[calc(100%+6px)]"
+              : "bottom-[calc(100%+6px)]",
+          )}
+        >
+          <div className="px-3 py-2 border-b border-line-soft">
+            <p className="text-sm font-medium text-ink truncate">{userName}</p>
+            <p className="text-xs text-ink-muted truncate">{userSubtitle}</p>
+          </div>
+
+          {menuItems.map((item) => {
+            const Icon = item.icon;
+            const showUnread =
+              item.label === "Notifications" && unreadCount > 0;
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                role="menuitem"
+                onClick={() => setOpen(false)}
+                className="flex items-center gap-2.5 px-3 py-2.5 text-sm text-ink hover:bg-canvas-sunken transition-colors"
+              >
+                <Icon className="h-4 w-4 text-ink-subtle shrink-0" />
+                <span className="flex-1">{item.label}</span>
+                {showUnread ? (
+                  <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-terracotta-deep text-canvas-raised text-[10px] font-semibold flex items-center justify-center tabular-nums">
+                    {unreadCount > 9 ? "9+" : unreadCount}
+                  </span>
+                ) : null}
+              </Link>
+            );
+          })}
+
+          <div className="my-1 border-t border-line-soft" />
+
+          <Link
+            href="/"
+            role="menuitem"
+            onClick={() => setOpen(false)}
+            data-testid={
+              compact ? "mobile-user-menu-sign-out" : "desktop-user-menu-sign-out"
+            }
+            className="flex items-center gap-2.5 px-3 py-2.5 text-sm text-terracotta-deep hover:bg-canvas-sunken transition-colors"
+          >
+            <LogOut className="h-4 w-4 shrink-0" />
+            <span>Switch user</span>
+          </Link>
+        </div>
+      ) : null}
     </div>
   );
 }

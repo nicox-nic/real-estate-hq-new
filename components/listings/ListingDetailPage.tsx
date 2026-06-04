@@ -9,18 +9,15 @@ import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { ListingActionRow } from "@/components/listings/ListingActionRow";
 import { VerificationBadge } from "@/components/listings/VerificationBadge";
-import {
-  DEMO_BROKER_ID,
-  seedListings,
-  seedUsers,
-} from "@/lib/data";
+import { DEMO_BROKER_ID, seedDevelopers, seedUsers } from "@/lib/data";
+import { resolveInventoryByRouteId } from "@/lib/logic/inventoryResolve";
 import { demoUserForRole } from "@/lib/rolePaths";
 import { formatPHPCompact, formatPercent, formatPHPWhole } from "@/lib/format";
 import { useCurrentRole } from "@/lib/useCurrentRole";
 
 /**
- * Listing detail — shared by /agent|broker|realtor/listings/[listingId].
- * Notification and listing-card links target this route.
+ * Listing / unit detail — /agent|broker|realtor/listings/[listingId].
+ * [listingId] may be a listing id or a developer unit id from inventory.
  */
 export function ListingDetailPage() {
   const params = useParams<{ listingId: string }>();
@@ -28,8 +25,10 @@ export function ListingDetailPage() {
   const roleSlug = role.toLowerCase();
   const user = demoUserForRole(role);
 
-  const listing = seedListings.find((l) => l.id === params.listingId);
-  if (!listing) notFound();
+  const resolved = resolveInventoryByRouteId(params.listingId);
+  if (!resolved) notFound();
+
+  const { routeId, listing, unit, project } = resolved;
 
   const agentsUnderCount = React.useMemo(
     () =>
@@ -41,8 +40,12 @@ export function ListingDetailPage() {
 
   const primaryHref =
     role === "Agent"
-      ? `/${roleSlug}/listings/${listing.id}/share`
-      : `/${roleSlug}/listings/${listing.id}/distribute`;
+      ? `/${roleSlug}/listings/${routeId}/share`
+      : `/${roleSlug}/listings/${routeId}/distribute`;
+
+  const backHref = project
+    ? `/${roleSlug}/listings/for-sale/developers/${project.developerId}/${project.id}`
+    : `/${roleSlug}/listings`;
 
   const ownerLabel = React.useMemo(() => {
     if (listing.ownerAgentId) {
@@ -53,7 +56,10 @@ export function ListingDetailPage() {
       const broker = seedUsers.find((u) => u.id === listing.ownerBrokerId);
       return broker ? `Broker · ${broker.fullName}` : "Broker listing";
     }
-    if (listing.developerId) return "Developer listing";
+    if (listing.developerId) {
+      const dev = seedDevelopers.find((d) => d.id === listing.developerId);
+      return dev ? `Developer · ${dev.name}` : "Developer listing";
+    }
     return listing.ownership;
   }, [listing]);
 
@@ -65,16 +71,18 @@ export function ListingDetailPage() {
     >
       <div className="space-y-5 pb-4">
         <Link
-          href={`/${roleSlug}/listings`}
+          href={backHref}
           className="inline-flex items-center gap-1.5 text-sm text-ink-muted hover:text-ink"
         >
           <ArrowLeft className="h-4 w-4" />
-          Back to Listings
+          {project ? `Back to ${project.name}` : "Back to Listings"}
         </Link>
 
         <header
           data-testid="listing-detail-header"
           data-listing-id={listing.id}
+          data-route-id={routeId}
+          data-unit-id={unit?.id}
           className="space-y-3"
         >
           <div className="flex items-start gap-3">
@@ -98,7 +106,10 @@ export function ListingDetailPage() {
               </div>
               <div className="text-xs text-ink-subtle mt-0.5 inline-flex items-center gap-1 justify-end">
                 <Tag className="h-3 w-3" />
-                {formatPercent(listing.commissionRate)} commission
+                {unit
+                  ? formatPHPWhole(unit.commissionEstimate)
+                  : formatPercent(listing.commissionRate)}{" "}
+                {unit ? "est. commission" : "commission"}
               </div>
             </div>
           </div>
@@ -121,25 +132,57 @@ export function ListingDetailPage() {
             listing.ownership !== "Developer Listing" ? (
               <VerificationBadge status={listing.verificationStatus} />
             ) : null}
-            <span className="text-xs text-ink-subtle inline-flex items-center gap-1 ml-auto">
-              <Sparkles className="h-3.5 w-3.5 text-gold-deep" />
-              {listing.engagementCount} engagements
-            </span>
+            {listing.engagementCount > 0 ? (
+              <span className="text-xs text-ink-subtle inline-flex items-center gap-1 ml-auto">
+                <Sparkles className="h-3.5 w-3.5 text-gold-deep" />
+                {listing.engagementCount} engagements
+              </span>
+            ) : null}
           </div>
         </header>
 
         <Card data-testid="listing-detail-facts" className="!p-5">
           <CardHeader>
-            <CardTitle>Property details</CardTitle>
+            <CardTitle>{unit ? "Unit details" : "Property details"}</CardTitle>
           </CardHeader>
           <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
             <Fact label="Ownership" value={listing.ownership} />
             <Fact label="Listed by" value={ownerLabel} />
             <Fact label="Availability" value={listing.availability} />
-            <Fact
-              label="Gross commission"
-              value={formatPercent(listing.commissionRate)}
-            />
+            {unit ? (
+              <>
+                <Fact label="Floor area" value={`${unit.floorArea} sqm`} />
+                <Fact
+                  label="Bedrooms"
+                  value={unit.bedrooms > 0 ? String(unit.bedrooms) : "Studio"}
+                />
+                {unit.floorLevel != null ? (
+                  <Fact label="Floor level" value={String(unit.floorLevel)} />
+                ) : null}
+                {unit.viewOrientation ? (
+                  <Fact label="View" value={unit.viewOrientation} />
+                ) : null}
+                <Fact
+                  label="Reservation fee"
+                  value={formatPHPWhole(unit.reservationFee)}
+                />
+                {unit.monthlyEquity ? (
+                  <Fact
+                    label="Monthly equity"
+                    value={formatPHPWhole(unit.monthlyEquity)}
+                  />
+                ) : null}
+                <Fact
+                  label="Financing"
+                  value={unit.financingOptions.join(", ")}
+                />
+              </>
+            ) : (
+              <Fact
+                label="Gross commission"
+                value={formatPercent(listing.commissionRate)}
+              />
+            )}
             {listing.assignedAgentIds?.length ? (
               <Fact
                 label="Assigned agents"

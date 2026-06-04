@@ -102,6 +102,7 @@ import {
   resolveSignIn,
 } from "@/lib/demoAuth";
 import { entityHrefForRole } from "@/lib/notificationLinks";
+import { resolveInventoryByRouteId } from "@/lib/logic/inventoryResolve";
 import {
   computeAgentDashboardKPIs,
   computeMoneyOnTheWay,
@@ -6259,6 +6260,19 @@ function checkAnalyticsAndNotifications() {
       }) === "/agent/site-visits/sv-001",
     );
   }
+
+  const laurel16 = resolveInventoryByRouteId("unit-laurel-16a");
+  check(
+    section,
+    "unit-laurel-16a resolves to inventory (no 404)",
+    laurel16 !== null && laurel16.unit?.id === "unit-laurel-16a",
+  );
+  const laurel18 = resolveInventoryByRouteId("unit-laurel-18c");
+  check(
+    section,
+    "unit-laurel-18c resolves to inventory (no 404)",
+    laurel18 !== null && laurel18.listing.availability === "Reserved",
+  );
 
   // ---- Manifest promotion ----
   const session8AIds = ["manager-analytics", "notifications"];

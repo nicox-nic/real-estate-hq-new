@@ -1,2 +1,4 @@
-// See app/broker/listings/page.tsx for rationale — mirror under /realtor.
+// Re-export under /realtor so useCurrentRole() reads "Realtor" from the URL.
+// Category drill-downs are mirrored under app/realtor/listings/*.
+
 export { default } from "@/app/agent/listings/page";

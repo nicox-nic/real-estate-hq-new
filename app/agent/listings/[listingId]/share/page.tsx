@@ -27,11 +27,11 @@ import { StatusBadge } from "@/components/ui/StatusBadge";
 import { cn } from "@/lib/cn";
 import {
   DEMO_AGENT_ID,
-  seedListings,
   seedLeads,
   seedPropertyFiles,
   seedUsers,
 } from "@/lib/data";
+import { resolveInventoryByRouteId } from "@/lib/logic/inventoryResolve";
 import { useCurrentRole } from "@/lib/useCurrentRole";
 import { generateShareMessage } from "@/lib/logic/aiShareMessage";
 import { applyShareTone } from "@/lib/logic/aiShareTone";
@@ -74,8 +74,9 @@ export default function ShareListingPage() {
   const role = useCurrentRole();
   const roleSlug = role.toLowerCase();
 
-  const listing = seedListings.find((l) => l.id === params.listingId);
-  if (!listing) notFound();
+  const resolved = resolveInventoryByRouteId(params.listingId);
+  if (!resolved) notFound();
+  const { routeId, listing } = resolved;
 
   // Eligible buyer leads = leads assigned to the current agent (or showing
   // interest in this listing). Default selection is the lead with the
@@ -233,7 +234,7 @@ export default function ShareListingPage() {
         {/* Header strip: back + title + Preview link */}
         <div className="flex items-center justify-between">
           <Link
-            href={`/${roleSlug}/listings/${listing.id}`}
+            href={`/${roleSlug}/listings/${routeId}`}
             className="inline-flex items-center gap-1.5 text-sm text-ink-muted hover:text-ink"
           >
             <ArrowLeft className="h-4 w-4" />
@@ -243,7 +244,7 @@ export default function ShareListingPage() {
             Share Listing
           </h1>
           <Link
-            href={`/${roleSlug}/listings/${listing.id}/share/preview?lead=${selectedLeadId}&tone=${encodeURIComponent(tone)}&language=${language}&files=${selectedFileIds.join(",")}&message=${encodeURIComponent(editedText)}`}
+            href={`/${roleSlug}/listings/${routeId}/share/preview?lead=${selectedLeadId}&tone=${encodeURIComponent(tone)}&language=${language}&files=${selectedFileIds.join(",")}&message=${encodeURIComponent(editedText)}`}
             data-testid="share-preview-link"
             className="text-sm font-medium text-gold-deep hover:text-ink"
           >
