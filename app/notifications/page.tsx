@@ -26,14 +26,14 @@ import { AppShell } from "@/components/layout/AppShell";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { cn } from "@/lib/cn";
-import {
-  seedNotifications,
-  seedUsers,
-  DEMO_AGENT_ID,
-} from "@/lib/data";
+import { seedNotifications } from "@/lib/data";
+import { entityHrefForRole } from "@/lib/notificationLinks";
+import { demoUserForRole, demoUserIdForRole, roleBasePath } from "@/lib/rolePaths";
+import { useCurrentRole } from "@/lib/useCurrentRole";
 import type {
   NotificationItem,
   NotificationCategory,
+  UserRole,
 } from "@/lib/types";
 
 /**
@@ -53,13 +53,15 @@ import type {
  * userId would come from auth context; here it's the seeded demo agent.
  */
 export default function NotificationsPage() {
-  const user = seedUsers.find((u) => u.id === DEMO_AGENT_ID);
+  const role = useCurrentRole();
+  const demoUserId = demoUserIdForRole(role);
+  const user = demoUserForRole(role);
 
   // Initial state from seed; mark-as-read updates local state only
   // (would persist via a backend in production)
   const [items, setItems] = React.useState<NotificationItem[]>(() =>
     seedNotifications
-      .filter((n) => n.userId === DEMO_AGENT_ID)
+      .filter((n) => n.userId === demoUserId)
       .sort((a, b) => b.occurredAt.localeCompare(a.occurredAt)),
   );
 
@@ -92,13 +94,13 @@ export default function NotificationsPage() {
 
   return (
     <AppShell
-      role="Agent"
-      userName={user?.fullName ?? "Demo Agent"}
-      userSubtitle={user?.companyName ?? "Agent"}
+      role={role}
+      userName={user?.fullName ?? "Demo User"}
+      userSubtitle={user?.companyName ?? role}
     >
       <div className="space-y-4 pb-4">
         <Link
-          href="/agent"
+          href={roleBasePath(role)}
           className="inline-flex items-center gap-1.5 text-sm text-ink-muted hover:text-ink"
         >
           <ArrowLeft className="h-4 w-4" />
@@ -189,6 +191,7 @@ export default function NotificationsPage() {
               <NotificationRow
                 key={n.id}
                 notification={n}
+                role={role}
                 onMarkRead={markAsRead}
               />
             ))}
@@ -243,14 +246,16 @@ function FilterChip({
 
 function NotificationRow({
   notification,
+  role,
   onMarkRead,
 }: {
   notification: NotificationItem;
+  role: UserRole;
   onMarkRead: (id: string) => void;
 }) {
   const Icon = categoryIcon(notification.category);
   const iconColor = categoryColor(notification.category);
-  const href = entityHref(notification);
+  const href = entityHrefForRole(role, notification);
 
   const content = (
     <div className="flex items-start gap-3">
@@ -427,22 +432,6 @@ function categoryColor(c: NotificationCategory): { bg: string; fg: string } {
     default:
       return { bg: "bg-canvas-sunken/50", fg: "text-ink-muted" };
   }
-}
-
-function entityHref(n: NotificationItem): string | undefined {
-  if (!n.relatedEntityId) return undefined;
-  const id = n.relatedEntityId;
-  // Route based on entity id prefix
-  if (id.startsWith("lead-")) return `/agent/leads/${id}`;
-  if (id.startsWith("deal-")) return `/agent/deals/${id}`;
-  if (id.startsWith("comm-"))
-    return `/agent/commissions/${id}/timeline`;
-  if (id.startsWith("listing-")) return `/agent/listings/${id}`;
-  if (id.startsWith("update-")) return undefined; // team updates are read-in-place
-  if (id.startsWith("sv-") || id.startsWith("visit-"))
-    return `/agent/site-visits`;
-  if (id.startsWith("bonus-")) return undefined;
-  return undefined;
 }
 
 function formatRelative(iso: string): string {

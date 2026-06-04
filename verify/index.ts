@@ -101,6 +101,7 @@ import {
   QUICK_DEMO_ACCOUNTS,
   resolveSignIn,
 } from "@/lib/demoAuth";
+import { entityHrefForRole } from "@/lib/notificationLinks";
 import {
   computeAgentDashboardKPIs,
   computeMoneyOnTheWay,
@@ -6237,6 +6238,27 @@ function checkAnalyticsAndNotifications() {
     demoAgentNotifs.length >= 8,
     `got ${demoAgentNotifs.length}`,
   );
+
+  const mactanNotif = seedNotifications.find(
+    (n) => n.relatedEntityId === "listing-broker-mactan-villa",
+  );
+  check(section, "Mactan listing notification exists in seed", !!mactanNotif);
+  if (mactanNotif) {
+    check(
+      section,
+      "Listing notification links to /agent/listings/[id]",
+      entityHrefForRole("Agent", mactanNotif) ===
+        "/agent/listings/listing-broker-mactan-villa",
+    );
+    check(
+      section,
+      "Site visit notification links to visit detail",
+      entityHrefForRole("Agent", {
+        ...mactanNotif,
+        relatedEntityId: "sv-001",
+      }) === "/agent/site-visits/sv-001",
+    );
+  }
 
   // ---- Manifest promotion ----
   const session8AIds = ["manager-analytics", "notifications"];
