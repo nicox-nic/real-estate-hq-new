@@ -572,9 +572,31 @@ Honest scope of the prototype:
 ## Deployment
 
 The repo builds as a standard Next.js app. `npm run build` produces a
-production bundle. No deployment is configured at the time of delivery
-— the build is intended for local development and is portable to any
-Next.js host (Vercel, Netlify, self-hosted Node) when wired to a
+production bundle.
+
+### Vercel (recommended)
+
+Repository: [github.com/nicox-nic/real-estate-hq](https://github.com/nicox-nic/real-estate-hq)
+
+1. Sign in at [vercel.com](https://vercel.com) with your GitHub account (`nicox-nic`).
+2. **Add New… → Project** → import **real-estate-hq**.
+3. Confirm defaults (Vercel auto-detects Next.js):
+   - **Framework Preset:** Next.js
+   - **Build Command:** `npm run build`
+   - **Install Command:** `npm install`
+   - **Output Directory:** (leave empty — Next.js default)
+4. Deploy. No environment variables are required for the mock-data prototype.
+
+After the first deploy, Vercel assigns a `*.vercel.app` URL; you can add a custom domain under **Project → Settings → Domains**.
+
+CLI alternative (after `npx vercel login`):
+
+```sh
+npx vercel link
+npx vercel --prod
+```
+
+The build is also portable to Netlify or self-hosted Node when wired to a
 backend.
 
 ---

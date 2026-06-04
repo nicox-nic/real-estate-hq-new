@@ -2,6 +2,10 @@
   "name": "real-estate-hq",
   "version": "0.1.0",
   "private": true,
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/nicox-nic/real-estate-hq.git"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
