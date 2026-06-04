@@ -4,7 +4,7 @@
   "private": true,
   "repository": {
     "type": "git",
-    "url": "https://github.com/nicox-nic/real-estate-hq.git"
+    "url": "https://github.com/nicox-nic/real-estate-hq-new.git"
   },
   "scripts": {
     "dev": "next dev",
