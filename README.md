@@ -580,9 +580,17 @@ Honest scope of the prototype:
 The repo builds as a standard Next.js app. `npm run build` produces a
 production bundle.
 
+**Production:** [https://rehq.appssandbox.com](https://rehq.appssandbox.com)
+
+Site metadata (title, description, Open Graph / Twitter preview, favicon,
+and web manifest) is configured in `lib/site.ts` and `app/layout.tsx`.
+Brand PNGs live in `app/` (Next metadata files) and `public/` (stable URLs
+for manifest and social tags). Regenerate with
+`pip install Pillow && python scripts/generate-brand-assets.py`.
+
 ### Vercel (recommended)
 
-Repository: [github.com/nicox-nic/real-estate-hq](https://github.com/nicox-nic/real-estate-hq)
+Repository: [github.com/nicox-nic/real-estate-hq-new](https://github.com/nicox-nic/real-estate-hq-new)
 
 1. Sign in at [vercel.com](https://vercel.com) with your GitHub account (`nicox-nic`).
 2. **Add New… → Project** → import **real-estate-hq**.
